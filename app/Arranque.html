@@ -1,5 +1,9 @@
 <script>
 /* Qué pasa al abrir, al cambiar de pestaña y al mover un filtro. */
+if (window.ES_DEV) {
+  const marcaDev = document.getElementById("marca-dev");
+  if (marcaDev) marcaDev.hidden = false;
+}
 function mostrarFiltros() {
   document.querySelectorAll(".panel-filtro").forEach(el => {
     el.hidden = el.dataset.vista !== vistaId;

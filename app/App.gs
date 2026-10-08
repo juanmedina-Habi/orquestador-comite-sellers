@@ -6,15 +6,17 @@
 
 var PROYECTO = 'papyrus-delivery-data';
 var TOPE_CSV = 25000;
+var SCRIPT_DEV = '19rPasDsuFFiq7kJrTuPFMEqu6meXmSvTVF2JX2zeClX1ACoFvq0OOgl_';
 
 function doGet() {
   if (!usuarioPermitido_()) {
     return HtmlService.createHtmlOutput('<!DOCTYPE html><html lang="es"><body><p>Sin acceso</p></body></html>')
       .setTitle('Sin acceso');
   }
-  return HtmlService.createTemplateFromFile('index')
-    .evaluate()
-    .setTitle('Orquestador Comité Sellers')
+  var plantilla = HtmlService.createTemplateFromFile('index');
+  plantilla.esDev = ScriptApp.getScriptId() === SCRIPT_DEV;
+  return plantilla.evaluate()
+    .setTitle(plantilla.esDev ? 'Orquestador Comité Sellers (dev)' : 'Orquestador Comité Sellers')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
