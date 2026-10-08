@@ -14,9 +14,12 @@
   .cabecera-marca svg { width: 28px; height: 28px; display: block; }
   .contenido { max-width: 1240px; margin: 0 auto; padding: 22px 24px 48px; }
   .encabezado { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-  .titulo-linea { display: flex; align-items: baseline; gap: 8px; }
+  .titulo-linea { display: flex; align-items: center; gap: 10px; }
   .encabezado h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
-  .marca-dev { color: #DC2626; font-size: 13px; font-weight: 600; }
+  .marca-dev {
+    color: #E11D48; border: 1px solid #E11D48; border-radius: 4px;
+    padding: 2px 6px 1px; font-size: 10px; font-weight: 700; letter-spacing: .08em; line-height: 1.4;
+  }
   .marca-dev[hidden] { display: none; }
   .encabezado h1::before {
     content: ""; display: inline-block; width: 4px; height: 22px; margin-right: 10px;
