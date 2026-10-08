@@ -1,23 +1,16 @@
 {
   "timeZone": "America/Bogota",
-  "runtimeVersion": "V8",
-  "exceptionLogging": "STACKDRIVER",
   "dependencies": {
     "enabledAdvancedServices": [
       {
         "userSymbol": "BigQuery",
-        "serviceId": "bigquery",
-        "version": "v2"
+        "version": "v2",
+        "serviceId": "bigquery"
       }
     ]
   },
-  "oauthScopes": [
-    "https://www.googleapis.com/auth/bigquery",
-    "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/script.scriptapp",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/spreadsheets"
-  ],
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
   "webapp": {
     "executeAs": "USER_DEPLOYING",
     "access": "DOMAIN"
