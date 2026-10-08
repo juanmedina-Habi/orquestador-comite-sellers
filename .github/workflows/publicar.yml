@@ -1,0 +1,50 @@
+name: Publicar en Apps Script
+
+on:
+  push:
+    branches: [main, dev]
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar clasp
+        run: npm install -g @google/clasp
+
+      - name: Credencial
+        run: printf '%s\n' "$CLASPRC" > "$HOME/.clasprc.json"
+        env:
+          CLASPRC: ${{ secrets.CLASPRC }}
+
+      - name: Elegir proyecto
+        run: |
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            SCRIPT_ID="$SCRIPT_ID_PROD"
+            DEPLOY_ID="$DEPLOY_ID_PROD"
+          else
+            SCRIPT_ID="$SCRIPT_ID_DEV"
+            DEPLOY_ID="$DEPLOY_ID_DEV"
+          fi
+          if [ -z "$SCRIPT_ID" ] || [ -z "$DEPLOY_ID" ]; then
+            echo "Faltan los secrets del script o de la implementación."
+            exit 1
+          fi
+          printf '{"scriptId":"%s","rootDir":"app"}\n' "$SCRIPT_ID" > .clasp.json
+          printf '%s' "$DEPLOY_ID" > /tmp/deploy-id
+        env:
+          SCRIPT_ID_PROD: ${{ secrets.SCRIPT_ID_PROD }}
+          SCRIPT_ID_DEV: ${{ secrets.SCRIPT_ID_DEV }}
+          DEPLOY_ID_PROD: ${{ secrets.DEPLOY_ID_PROD }}
+          DEPLOY_ID_DEV: ${{ secrets.DEPLOY_ID_DEV }}
+
+      - name: Subir archivos
+        run: clasp push --force
+
+      - name: Actualizar la implementación
+        run: clasp deploy -i "$(cat /tmp/deploy-id)" -d "GitHub ${GITHUB_SHA}"

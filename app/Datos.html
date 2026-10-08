@@ -1,0 +1,204 @@
+<script>
+/* Filtros, barras y tabla salen del archivo del día. No consultan BigQuery. */
+const META_HORAS = { sla: 8, documentos: 2, pricing: 4, remo: 4, aprobologia: 2, inmo: 6 };
+const TOPE_EXPORT = 25000;
+
+function fuenteDe(vista) {
+  if (vista === "sla") return "sla";
+  if (vista === "inmo") return "inmo";
+  return "micro";
+}
+function isoDeDia(n) {
+  if (n === "" || n == null) return "";
+  const dia = Number(n);
+  if (!Number.isFinite(dia)) return "";
+  return new Date(dia * 86400000).toISOString().slice(0, 10);
+}
+function decodificar(raw) {
+  const n = raw.__rows || 0;
+  const cols = {};
+  Object.keys(raw).forEach(k => {
+    if (k === "__rows") return;
+    const v = raw[k];
+    if (v && typeof v === "object" && v.d) {
+      const idx = String(v.i || "").split(",");
+      const arr = new Array(n);
+      for (let r = 0; r < n; r++) {
+        const j = Number(idx[r]);
+        arr[r] = j < 0 || !Number.isFinite(j) ? "" : (v.d[j] || "");
+      }
+      cols[k] = arr;
+      return;
+    }
+    const partes = String(v == null ? "" : v).split(",");
+    const arr = new Array(n);
+    const esFecha = k === "envio" || k === "inicio" || k === "fin";
+    for (let r = 0; r < n; r++) {
+      const celda = partes[r] == null ? "" : partes[r];
+      if (celda === "") arr[r] = esFecha ? "" : null;
+      else arr[r] = esFecha ? isoDeDia(celda) : celda;
+    }
+    cols[k] = arr;
+  });
+  return { n: n, cols: cols };
+}
+async function abrirSnapshot(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const texto = await new Response(stream).text();
+  return decodificar(JSON.parse(texto));
+}
+function prepararTablas() {
+  window.INDICE = {};
+  ["sla", "micro", "inmo"].forEach(nombre => {
+    const t = window.TABLAS[nombre];
+    if (!t) return;
+    const fin = t.cols.fin || [];
+    const nid = t.cols.nid || [];
+    const orden = [];
+    for (let i = 0; i < t.n; i++) orden.push(i);
+    orden.sort((a, b) => {
+      if (fin[a] !== fin[b]) return fin[a] < fin[b] ? 1 : -1;
+      if (nid[a] !== nid[b]) return nid[a] < nid[b] ? 1 : -1;
+      return 0;
+    });
+    t.orden = orden;
+  });
+  VISTAS.forEach(v => {
+    const t = window.TABLAS[fuenteDe(v.id)];
+    const vistaCol = t && t.cols.vista;
+    const idx = [];
+    (t.orden || []).forEach(i => {
+      if (!vistaCol || vistaCol[i] === v.id) idx.push(i);
+    });
+    window.INDICE[v.id] = idx;
+  });
+}
+function enRango(valor, desde, hasta) {
+  if (!desde && !hasta) return true;
+  if (!valor) return false;
+  if (desde && valor < desde) return false;
+  if (hasta && valor > hasta) return false;
+  return true;
+}
+function cumpleHora(horas, meta) {
+  return horas != null && horas !== "" && Number(horas) <= meta;
+}
+function filaPasa(vista, i, pedido) {
+  const t = window.TABLAS[fuenteDe(vista)];
+  const c = t.cols;
+  if (pedido.pais && c.pais[i] !== pedido.pais) return false;
+  if (pedido.comite && c.comite && c.comite[i] !== pedido.comite) return false;
+  if (pedido.estado && c.estado && c.estado[i] !== pedido.estado) return false;
+  if (pedido.etapa && c.etapa && c.etapa[i] !== pedido.etapa) return false;
+  if (pedido.automatizacion && c.automatizacion && c.automatizacion[i] !== pedido.automatizacion) return false;
+  const inicio = c.inicio ? c.inicio[i] : c.envio[i];
+  if (!enRango(c.envio[i], pedido.envioDesde, pedido.envioHasta)) return false;
+  if (!enRango(c.fin[i], pedido.finDesde, pedido.finHasta)) return false;
+  if (!enRango(inicio, pedido.iniDesde, pedido.iniHasta)) return false;
+  if (pedido.nid && String(c.nid[i]).indexOf(pedido.nid) === -1) return false;
+  const listas = ["propietario", "equipo", "dueno", "respuesta", "reintentos", "agente"];
+  for (let k = 0; k < listas.length; k++) {
+    const nombre = listas[k];
+    const vals = pedido[nombre];
+    if (vals && vals.length && c[nombre] && vals.indexOf(c[nombre][i]) === -1) return false;
+  }
+  const ok = cumpleHora(c.horas[i], META_HORAS[vista]);
+  if (pedido.cumple === "Si" && !ok) return false;
+  if (pedido.cumple === "No" && ok) return false;
+  return true;
+}
+function calcularRecorte(pedido) {
+  const vista = pedido.vista;
+  const t = window.TABLAS[fuenteDe(vista)];
+  const grano = VISTAS.find(v => v.id === vista).grano;
+  const mapa = new Map();
+  const matches = [];
+  const meta = META_HORAS[vista];
+  const fin = t.cols.fin;
+  const horas = t.cols.horas;
+  (window.INDICE[vista] || []).forEach(i => {
+    if (!filaPasa(vista, i, pedido)) return;
+    const periodo = periodoDe(fin[i], grano);
+    let acc = mapa.get(periodo);
+    if (!acc) {
+      acc = { periodo: periodo, n: 0, n_cumple: 0 };
+      mapa.set(periodo, acc);
+    }
+    acc.n += 1;
+    if (cumpleHora(horas[i], meta)) acc.n_cumple += 1;
+    if (!pedido.periodo || periodo === pedido.periodo) matches.push(i);
+  });
+  return {
+    series: [...mapa.values()].sort((a, b) => (a.periodo > b.periodo ? 1 : -1)),
+    matches: matches,
+  };
+}
+function filaVisible(vista, t, i) {
+  const c = t.cols;
+  const horas = c.horas[i];
+  return {
+    nid: c.nid[i],
+    pais: c.pais[i],
+    inicio: c.inicio ? c.inicio[i] : c.envio[i],
+    fin: c.fin[i],
+    horas: horas == null || horas === "" ? null : Number(horas),
+    cumple: cumpleHora(horas, META_HORAS[vista]) ? "Si" : "No",
+    etapa: c.etapa ? c.etapa[i] : "",
+    tipo: c.tipo ? c.tipo[i] : "",
+    agente: c.agente ? c.agente[i] : "",
+    comite: c.comite ? c.comite[i] : "",
+    estado: c.estado ? c.estado[i] : "",
+    propietario: c.propietario ? c.propietario[i] : "",
+  };
+}
+function paginaLocal(pedido, matches) {
+  const t = window.TABLAS[fuenteDe(pedido.vista)];
+  const desde = (pedido.pagina || 0) * TAM;
+  return {
+    total: matches.length,
+    pagina: pedido.pagina || 0,
+    filas: matches.slice(desde, desde + TAM).map(i => filaVisible(pedido.vista, t, i)),
+  };
+}
+function catalogoDe(vista) {
+  const t = window.TABLAS[fuenteDe(vista)];
+  const idx = window.INDICE[vista] || [];
+  let dims = [];
+  if (vista === "sla") dims = ["equipo", "propietario", "dueno", "respuesta", "reintentos"];
+  else if (vista === "aprobologia") dims = ["propietario", "agente"];
+  else if (vista === "documentos" || vista === "pricing" || vista === "remo") dims = ["agente"];
+  const cat = {};
+  dims.forEach(dim => {
+    const col = t.cols[dim];
+    const set = new Set();
+    if (col) idx.forEach(i => { if (col[i]) set.add(col[i]); });
+    cat[dim] = [...set].sort((a, b) => a.localeCompare(b, "es"));
+  });
+  return cat;
+}
+function tablaExportLocal(pedido) {
+  if (!window.TABLAS || !window.TABLAS.sla) return { error: "Todavía no hay datos del día." };
+  const recorte = calcularRecorte(pedido);
+  if (!recorte.matches.length) return { error: "No hay nid con estos filtros." };
+  if (recorte.matches.length > TOPE_EXPORT) {
+    return { error: "Hay " + nf.format(recorte.matches.length) + " nid en este recorte. Acota un filtro: la descarga llega hasta " + nf.format(TOPE_EXPORT) + "." };
+  }
+  const t = window.TABLAS[fuenteDe(pedido.vista)];
+  const aprob = pedido.vista === "aprobologia";
+  const encabezado = aprob
+    ? ["Nid", "País", "Inicio", "Fin", "Horas hábiles", "Cumple", "Tiempo hábil", "Agente", "Comité en curso", "Estado", "Propietario"]
+    : ["Nid", "País", "Inicio", "Fin", "Horas hábiles", "Cumple", "Etapa", "Tipo"];
+  const cuerpo = recorte.matches.map(i => {
+    const f = filaVisible(pedido.vista, t, i);
+    return aprob
+      ? [f.nid, rotuloPais(f.pais), fechaCorta(f.inicio), fechaCorta(f.fin), f.horas == null ? "" : f.horas, f.cumple, tiempoHabil(f.horas), f.agente, f.comite, f.estado, f.propietario]
+      : [f.nid, rotuloPais(f.pais), fechaCorta(f.inicio), fechaCorta(f.fin), f.horas == null ? "" : f.horas, f.cumple, f.etapa, f.tipo];
+  });
+  let nombre = "Orquestador " + pedido.vista;
+  if (pedido.periodo) nombre += " " + pedido.periodo;
+  return { encabezado: encabezado, cuerpo: cuerpo, nombre: nombre };
+}
+</script>

@@ -1,0 +1,244 @@
+<script>
+/* Qué pasa al abrir, al cambiar de pestaña y al mover un filtro. */
+function mostrarFiltros() {
+  document.querySelectorAll(".panel-filtro").forEach(el => {
+    el.hidden = el.dataset.vista !== vistaId;
+  });
+}
+function pintarPestanas() {
+  document.getElementById("pestanas").innerHTML = VISTAS.map(v =>
+    `<button type="button" data-vista="${v.id}" class="${v.id === vistaId ? "activa" : ""}" role="tab">${esc(v.nombre)}</button>`
+  ).join("");
+}
+function pintar() {
+  mostrarFiltros();
+  pintarPestanas();
+  pintarGrafica();
+  pintarDetalle();
+}
+function valoresCat(vista, dim) {
+  const c = window.CATALOGOS || {};
+  return (c[vista] && c[vista][dim]) || [];
+}
+function marcasActuales(id) {
+  const root = document.getElementById(id);
+  if (!root) return null;
+  const items = [...root.querySelectorAll("input[data-valor]")];
+  if (!items.length) return null;
+  const todo = root.querySelector("input[data-todo]");
+  if (todo && todo.checked) return null;
+  return items.filter(x => x.checked).map(x => x.dataset.valor);
+}
+function instalarCatalogo(vista, cat) {
+  window.CATALOGOS = window.CATALOGOS || {};
+  window.CATALOGOS[vista] = cat || {};
+  if (vista === "sla") {
+    const eraInicial = listaProvisional("sla-propietario");
+    const prev = {
+      equipo: marcasActuales("sla-equipo"),
+      propietario: marcasActuales("sla-propietario"),
+      dueno: marcasActuales("sla-dueno"),
+      respuesta: marcasActuales("sla-respuesta"),
+      reintentos: marcasActuales("sla-reintentos"),
+    };
+    llenarLista("sla-equipo", cat.equipo || []);
+    llenarLista("sla-propietario", cat.propietario || []);
+    llenarLista("sla-dueno", cat.dueno || []);
+    llenarLista("sla-respuesta", cat.respuesta || []);
+    llenarLista("sla-reintentos", cat.reintentos || []);
+    if (prev.equipo) marcarLista("sla-equipo", prev.equipo);
+    if (prev.propietario) marcarLista("sla-propietario", prev.propietario);
+    else if (eraInicial) marcarLista("sla-propietario", PROPIETARIOS_TABLERO);
+    if (prev.dueno) marcarLista("sla-dueno", prev.dueno);
+    if (prev.respuesta) marcarLista("sla-respuesta", prev.respuesta);
+    if (prev.reintentos) marcarLista("sla-reintentos", prev.reintentos);
+    return;
+  }
+  if (vista === "aprobologia") {
+    const raizProp = document.getElementById("fa-propietario");
+    const primera = !raizProp || !raizProp.querySelector("input[data-valor]");
+    const prevProp = marcasActuales("fa-propietario");
+    const prevAgente = marcasActuales("fa-agente");
+    llenarLista("fa-propietario", cat.propietario || []);
+    llenarLista("fa-agente", cat.agente || []);
+    if (prevProp) marcarLista("fa-propietario", prevProp);
+    else if (primera) marcarLista("fa-propietario", PROPIETARIOS_APROBOLOGIA);
+    if (prevAgente) marcarLista("fa-agente", prevAgente);
+    return;
+  }
+  if (vista === "documentos" || vista === "pricing" || vista === "remo") {
+    const id = vista + "-agente";
+    const prev = marcasActuales(id);
+    llenarLista(id, cat.agente || []);
+    if (prev) marcarLista(id, prev);
+  }
+}
+let timer = 0;
+function textoActualizado() {
+  const iso = window.ACTUALIZADO_EN;
+  if (!iso) return "—";
+  const fecha = new Date(iso);
+  if (Number.isNaN(fecha.getTime())) return iso;
+  const hora = new Intl.DateTimeFormat("es-CO", { hour: "numeric", minute: "2-digit" }).format(fecha);
+  return fecha.getDate() + " de " + MES_LARGO[fecha.getMonth()] + " de " + fecha.getFullYear() + ", " + hora;
+}
+function pintarSello() {
+  const act = document.getElementById("actualizacion");
+  if (!act || window.REFRESCANDO) return;
+  act.innerHTML = `<span>Datos del día</span><b>${textoActualizado()}</b>`;
+}
+function programarRecorte(soloDetalle) {
+  clearTimeout(timer);
+  timer = setTimeout(() => pedirRecorte(!!soloDetalle), 250);
+}
+function repintarDatos() {
+  busqueda[vistaId].pagina = 0;
+  programarRecorte(false);
+}
+function pedirRecorte(soloDetalle) {
+  if (!window.TABLAS || !window.TABLAS.sla) return;
+  const pedido = pedidoActual();
+  const recorte = calcularRecorte(pedido);
+  if (!soloDetalle) {
+    window.CARGANDO_SERIE = false;
+    window.REFRESCANDO = false;
+    window.SERIES = recorte.series;
+    pintarGrafica();
+    pintarSello();
+  }
+  const total = recorte.matches.length;
+  const ultima = Math.max(0, Math.ceil(total / TAM) - 1);
+  if ((pedido.pagina || 0) > ultima) {
+    busqueda[pedido.vista].pagina = ultima;
+    pedido.pagina = ultima;
+  }
+  window.CARGANDO_TABLA = false;
+  window.PAGINA = paginaLocal(pedido, recorte.matches);
+  pintarDetalle();
+}
+function llamarServidor(nombre, arg) {
+  return new Promise((ok, mal) => {
+    const run = google.script.run.withSuccessHandler(ok).withFailureHandler(mal);
+    if (arg === undefined) run[nombre]();
+    else run[nombre](arg);
+  });
+}
+async function traerTablas() {
+  const nombres = ["sla", "micro", "inmo"];
+  const partes = await Promise.all(nombres.map(nombre => llamarServidor("getSnapshot", nombre)));
+  window.TABLAS = {};
+  for (let i = 0; i < nombres.length; i++) {
+    const res = partes[i];
+    if (!res || res.error) throw new Error((res && res.error) || ("No se pudo leer " + nombres[i]));
+    window.TABLAS[nombres[i]] = await abrirSnapshot(res.b64);
+    if (res.actualizado) window.ACTUALIZADO_EN = res.actualizado;
+  }
+  prepararTablas();
+}
+function instalarListas() {
+  VISTAS.forEach(v => {
+    if (v.id === "inmo") return;
+    instalarCatalogo(v.id, catalogoDe(v.id));
+  });
+}
+let vigilancia = 0;
+function avisoEspera(texto) {
+  const pagina = document.getElementById("pagina");
+  if (!pagina || window.TABLAS) return;
+  pagina.innerHTML = `<p class="aviso-espera">${esc(texto)}</p>`;
+}
+function vigilarArchivo(selloPrevio) {
+  clearInterval(vigilancia);
+  const antes = selloPrevio || "";
+  vigilancia = setInterval(async () => {
+    try {
+      const boot = await llamarServidor("getBootstrap");
+      if (!boot) return;
+      const marca = document.querySelector("#actualizacion b");
+      const mismo = (boot.actualizado || "") === antes;
+      if (!boot.corriendo && boot.errorRefresh && mismo) {
+        clearInterval(vigilancia);
+        if (marca) marca.textContent = boot.errorRefresh;
+        return;
+      }
+      if (boot.corriendo || !boot.listo || (antes && mismo)) return;
+      clearInterval(vigilancia);
+      window.ACTUALIZADO_EN = boot.actualizado || "";
+      await traerTablas();
+      instalarListas();
+      window.REFRESCANDO = false;
+      pintarSello();
+      pedirRecorte(false);
+    } catch (e) {}
+  }, 15000);
+}
+async function mostrarArchivo(boot) {
+  window.ES_OWNER = !!(boot && boot.owner);
+  window.ACTUALIZADO_EN = (boot && boot.actualizado) || "";
+  if (boot && boot.listo) {
+    const marca = document.querySelector("#actualizacion b");
+    if (marca) marca.textContent = "cargando el archivo del día…";
+    await traerTablas();
+    instalarListas();
+    pintarSello();
+    pedirRecorte(false);
+    return;
+  }
+  if (window.ES_OWNER) {
+    const prog = await llamarServidor("prepararDia");
+    if (prog && prog.error) throw new Error(prog.error);
+  }
+  const marca = document.querySelector("#actualizacion b");
+  if (marca) marca.textContent = "listo a las 7:00";
+  avisoEspera("Los datos se preparan solos todos los días a las 7:00. Esta pantalla solo los muestra. La primera vez tarda unos minutos y la gráfica aparece sola.");
+  vigilarArchivo(window.ACTUALIZADO_EN || "");
+}
+async function arrancar() {
+  if (!(window.google && google.script && google.script.run)) {
+    document.getElementById("pagina").innerHTML = "<p>Este tablero se abre desde la aplicación de Apps Script.</p>";
+    return;
+  }
+  const marca = document.querySelector("#actualizacion b");
+  if (marca) marca.textContent = "cargando…";
+  try {
+    const boot = await llamarServidor("getBootstrap");
+    if (!boot || boot.error) throw new Error((boot && boot.error) || "No se pudo abrir");
+    await mostrarArchivo(boot);
+  } catch (err) {
+    if (marca) marca.textContent = err.message || "No se pudo cargar";
+  }
+}
+
+armarPaneles();
+pintarPestanas();
+mostrarFiltros();
+document.getElementById("pestanas").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b || b.dataset.vista === vistaId) return;
+  vistaId = b.dataset.vista;
+  ocultarTarjeta();
+  mostrarFiltros();
+  pintarPestanas();
+  pedirRecorte(false);
+});
+document.getElementById("limpiar").addEventListener("click", () => {
+  VISTAS.forEach(v => { busqueda[v.id].periodo = ""; busqueda[v.id].pagina = 0; });
+  aplicarPredeterminados();
+  repintarDatos();
+});
+document.addEventListener("click", e => {
+  const dentro = e.target.closest(".desplegable");
+  document.querySelectorAll(".desplegable[open]").forEach(el => {
+    if (el !== dentro) el.open = false;
+  });
+});
+document.querySelector(".filtros").addEventListener("change", e => {
+  if (e.target.closest(".desplegable")) return;
+  if (!e.target.closest(".panel-filtro")) return;
+  repintarDatos();
+});
+aplicarPredeterminados();
+llenarLista("sla-propietario", PROPIETARIOS_TABLERO);
+marcarLista("sla-propietario", PROPIETARIOS_TABLERO);
+arrancar();
+</script>

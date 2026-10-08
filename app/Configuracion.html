@@ -1,0 +1,45 @@
+<script>
+/* Pestañas, formatos y rótulos. */
+const VISTAS = [
+  { id: "sla", nombre: "SLA", nota: "Respuesta del orquestador. Cumple en 8 horas hábiles o menos.", grano: "mes" },
+  { id: "documentos", nombre: "SLA Revisión Documentos", nota: "Revisión de documentos ya respondida. Cumple en 2 horas hábiles o menos.", grano: "semana" },
+  { id: "pricing", nombre: "SLA Pricing", nota: "Pricing, automático y manual. Cumple en 4 horas hábiles o menos.", grano: "semana" },
+  { id: "remo", nombre: "SLA Remo", nota: "Revisión de remodelación. Cumple en 4 horas hábiles o menos.", grano: "semana" },
+  { id: "aprobologia", nombre: "SLA Aprobología", nota: "Aprobología, con el resto de tareas ya avanzadas. Cumple en 2 horas hábiles o menos.", grano: "mes" },
+  { id: "inmo", nombre: "SLA Inmo", nota: "Comité de inmobiliaria. Cumple en 6 horas hábiles o menos. Abre en México.", grano: "día" },
+];
+const MES = ["ene","feb","mar","abr","may","jun","jul","ago","sept","oct","nov","dic"];
+const MES_LARGO = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+const nf = new Intl.NumberFormat("es-CO");
+const nf1 = new Intl.NumberFormat("es-CO", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const nf2 = new Intl.NumberFormat("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const TAM = 50;
+const busqueda = Object.fromEntries(VISTAS.map(v => [v.id, { nid: "", pagina: 0, periodo: "" }]));
+let vistaId = "sla";
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+}
+function rotuloPais(p) { return p === "Mexico" ? "México" : (p || ""); }
+function fechaCorta(iso) {
+  if (!iso) return "";
+  const [a, m, d] = iso.split("-");
+  return `${+d}/${+m}/${a}`;
+}
+function periodoDe(iso, grano) {
+  if (!iso || String(iso).length < 10) return "";
+  iso = String(iso).slice(0, 10);
+  if (grano === "mes") return iso.slice(0, 7) + "-01";
+  if (grano === "día") return iso;
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));
+  return dt.toISOString().slice(0, 10);
+}
+function etiquetaLarga(iso, grano) {
+  const [a, m, d] = iso.split("-");
+  if (grano === "mes") return `${MES_LARGO[+m - 1]} de ${a}`;
+  if (grano === "semana") return `semana del ${+d} de ${MES_LARGO[+m - 1]} de ${a}`;
+  return `${+d} de ${MES_LARGO[+m - 1]} de ${a}`;
+}
+</script>

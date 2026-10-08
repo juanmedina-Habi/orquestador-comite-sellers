@@ -1,0 +1,156 @@
+<script>
+/* Barras, línea de cumplimiento y la tarjeta al pasar el cursor. */
+function seriesVista() {
+  const v = VISTAS.find(x => x.id === vistaId);
+  return { v, filas: window.SERIES || [] };
+}
+function resumenFiltro() {
+  const f = filtros();
+  const partes = [];
+  if (f.pais) partes.push(rotuloPais(f.pais));
+  if (f.cumple) partes.push(f.cumple === "Si" ? "Sí" : "No");
+  if (f.comite) partes.push(f.comite === "Si" ? "Comité en curso" : "Comité cerrado");
+  if (f.estado) partes.push(f.estado);
+  return partes.join(" · ");
+}
+function etiquetaEje(iso, grano) {
+  const [a, m, d] = iso.split("-");
+  if (grano === "mes") return `<b>${MES[+m - 1]}</b><small>${a}</small>`;
+  return `<b>${+d} ${MES[+m - 1]}</b><small>${a}</small>`;
+}
+function grafica(filas, grano) {
+  if (window.CARGANDO_SERIE) return `<p>Cargando…</p>`;
+  if (!filas.length) return `<p>Sin nid con estos filtros.</p>`;
+  const maxN = Math.max(...filas.map(f => f.n), 1);
+  const n = filas.length;
+  const xDe = i => ((i + 0.5) / n) * 100;
+  const barras = filas.map(f => {
+    const alto = (f.n / maxN) * 100;
+    return `<div class="ranura"><div class="seg" style="height:${alto}%"></div></div>`;
+  }).join("");
+  const pts = filas.map((f, i) => {
+    const pct = f.n ? (f.n_cumple / f.n) * 100 : 0;
+    return { x: xDe(i), y: 100 - pct, pct, n: f.n, alto: (f.n / maxN) * 100 };
+  });
+  const d = pts.map((p, i) => (i ? "L" : "M") + p.x + " " + p.y).join(" ");
+  const puntos = pts.map(p => `<span class="punto" style="left:${p.x}%;bottom:${p.pct}%"></span>`).join("");
+  const etiquetas = pts.map(p => {
+    const dentro = p.alto >= 16;
+    return `<span class="etq-n${dentro ? " dentro" : ""}" style="left:${p.x}%;bottom:${p.alto}%">${nf.format(p.n)}</span>`
+      + `<span class="etq-pct" style="left:${p.x}%;bottom:${p.pct}%">${nf2.format(p.pct)}%</span>`;
+  }).join("");
+  const ticks = [0, .25, .5, .75, 1].map(t => `<span style="bottom:${t * 100}%">${nf.format(Math.round(maxN * t))}</span>`).join("");
+  const der = [0, 20, 40, 60, 80, 100].map(t => `<span style="bottom:${t}%">${t}%</span>`).join("");
+  const ejeX = filas.map(f => `<span>${etiquetaEje(f.periodo, grano)}</span>`).join("");
+  const hits = filas.map(f => {
+    const pct = f.n ? (f.n_cumple / f.n) * 100 : 0;
+    const punto = {
+      periodo: f.periodo,
+      mes: etiquetaLarga(f.periodo, grano),
+      n: f.n, cumple: f.n_cumple, no: f.n - f.n_cumple, pct,
+    };
+    const on = busqueda[vistaId] && busqueda[vistaId].periodo === f.periodo;
+    return `<button type="button" class="mes-hit${on ? " elegida" : ""}" data-punto="${esc(JSON.stringify(punto))}" aria-label="${esc(punto.mes)}"></button>`;
+  }).join("");
+  const columna = grano === "mes" ? 0 : grano === "día" ? 52 : 68;
+  const ancho = columna * n;
+  return `<div class="plot-marco">
+    <div class="eje" aria-hidden="true">${ticks}</div>
+    <div class="plot-scroll" id="plot-scroll">
+      <div class="pista" style="width:max(100%, ${ancho}px)">
+        <div></div>
+        <div class="lienzo">
+          <div class="area">
+            <div class="barras">${barras}</div>
+            <svg class="capa" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="#0F766E" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>
+            ${puntos}
+            ${etiquetas}
+            <div class="mes-hits">${hits}</div>
+          </div>
+        </div>
+        <div class="eje-x">${ejeX}</div>
+      </div>
+    </div>
+    <div class="eje der" aria-hidden="true">${der}</div>
+  </div>
+  <p class="plot-nota">Cada barra es el conteo de nid. El porcentaje es la parte que cumple la meta. Elige una barra para ver solo ese periodo en la tabla. Si no cabe en la pantalla, desliza hacia la izquierda para ver el historial.</p>`;
+}
+function pintarGrafica() {
+  const { v, filas } = seriesVista();
+  document.getElementById("titulo").textContent = v.nombre;
+  document.getElementById("subtitulo").textContent = v.nota;
+  const ultima = filas[filas.length - 1];
+  const pct = ultima && ultima.n ? (ultima.n_cumple / ultima.n) * 100 : null;
+  document.getElementById("pagina").innerHTML = `
+    <div class="franja">
+      <div>
+        <h2>Cumplimiento</h2>
+        <p>${esc(resumenFiltro() || "Todos los países")}</p>
+      </div>
+      <div class="kpis">
+        <div><b>${ultima ? nf.format(ultima.n) : "—"}</b><span>Nid del último ${v.grano}</span></div>
+        <div><b>${pct == null ? "—" : nf1.format(pct) + "%"}</b><span>Cumplimiento</span></div>
+      </div>
+    </div>
+    <div class="leyenda"><span><i></i>Nid</span><span><i class="linea"></i>% que cumple</span></div>
+    ${grafica(filas, v.grano)}`;
+  const sc = document.getElementById("plot-scroll");
+  if (sc) requestAnimationFrame(() => {
+    sc.scrollLeft = sc.scrollWidth;
+    if (sc.scrollLeft > 12) sc.classList.add("hay-historial");
+    const nota = document.querySelector(".plot-nota");
+    if (nota && sc.scrollWidth <= sc.clientWidth + 2) nota.hidden = true;
+  });
+}
+let tarjetaHit = null;
+function pintarTarjeta(hit, ev) {
+  const card = document.getElementById("tarjeta-mes");
+  if (tarjetaHit !== hit) {
+    tarjetaHit = hit;
+    let punto;
+    try { punto = JSON.parse(hit.dataset.punto); } catch (e) { return; }
+    card.innerHTML = `
+      <p class="tarjeta-mes-cuando">${esc(punto.mes)}</p>
+      <p class="tarjeta-mes-corte">${esc(resumenFiltro() || "Todos")}</p>
+      <ul>
+        <li><i style="background:#2DD4BF"></i><span>Nid</span><b>${nf.format(punto.n)}</b></li>
+        <li><i class="linea" style="background:#134E4A"></i><span>Cumple</span><b>${nf.format(punto.cumple)}</b></li>
+        <li><i style="background:#BE185D"></i><span>No cumple</span><b>${nf.format(punto.no)}</b></li>
+      </ul>
+      <p class="tarjeta-mes-vol"><span>Cumplimiento</span><b>${nf1.format(punto.pct)}%</b></p>`;
+  }
+  card.hidden = false;
+  const margen = 12;
+  const x = Math.min(ev.clientX + 14, window.innerWidth - card.offsetWidth - margen);
+  const y = Math.min(ev.clientY + 16, window.innerHeight - card.offsetHeight - margen);
+  card.style.left = Math.max(margen, x) + "px";
+  card.style.top = Math.max(margen, y) + "px";
+}
+function ocultarTarjeta() {
+  tarjetaHit = null;
+  document.getElementById("tarjeta-mes").hidden = true;
+}
+document.getElementById("pagina").addEventListener("mouseover", e => {
+  const hit = e.target.closest(".mes-hit");
+  if (hit) pintarTarjeta(hit, e);
+});
+document.getElementById("pagina").addEventListener("mousemove", e => {
+  const hit = e.target.closest(".mes-hit");
+  if (hit) pintarTarjeta(hit, e);
+  else ocultarTarjeta();
+});
+document.getElementById("pagina").addEventListener("click", e => {
+  const hit = e.target.closest(".mes-hit");
+  if (!hit) return;
+  let punto;
+  try { punto = JSON.parse(hit.dataset.punto); } catch (err) { return; }
+  if (!punto.periodo) return;
+  const mismo = busqueda[vistaId].periodo === punto.periodo;
+  busqueda[vistaId].periodo = mismo ? "" : punto.periodo;
+  busqueda[vistaId].pagina = 0;
+  document.querySelectorAll("#pagina .mes-hit").forEach(el => el.classList.remove("elegida"));
+  if (!mismo) hit.classList.add("elegida");
+  ocultarTarjeta();
+  programarRecorte(true);
+});
+</script>

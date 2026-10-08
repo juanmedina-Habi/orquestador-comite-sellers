@@ -1,0 +1,146 @@
+<script>
+/* Tabla de nid, páginas de 50 y descarga. */
+let detalleArmada = "";
+function pintarDetalle() {
+  const v = VISTAS.find(x => x.id === vistaId);
+  const extra = v.id === "aprobologia"
+    ? "<th>Tiempo hábil</th><th>Agente</th><th>Comité en curso</th><th>Estado</th>"
+    : (v.id === "pricing" ? "<th>Tipo</th>" : (v.id === "sla" || v.id === "inmo" ? "<th>Etapa</th>" : ""));
+  const cols = v.id === "aprobologia" ? 10 : 7 + (extra ? 1 : 0);
+  if (detalleArmada !== v.id || !document.getElementById("detalle-cuerpo")) {
+    detalleArmada = v.id;
+    document.getElementById("detalle").innerHTML = `
+      <div class="detalle-cab">
+        <div>
+          <h2>Tabla detalle</h2>
+          <p id="detalle-nota">Nid de ${esc(v.nombre)}. La más reciente primero.</p>
+        </div>
+        <div class="detalle-acciones">
+          <button type="button" class="btn-descarga" id="det-descarga">Descargar CSV</button>
+          <button type="button" class="btn-limpiar" id="det-hoja">Hoja de cálculo</button>
+        </div>
+      </div>
+      <div class="detalle-bar">
+        <label>Nid <input id="f-nid" type="search" inputmode="numeric" placeholder="Buscar nid" value="${esc(busqueda[vistaId].nid)}"></label>
+        <span id="detalle-cuenta"></span>
+        <span class="detalle-nav">
+          <button type="button" class="btn-limpiar" id="det-prev">Anterior</button>
+          <button type="button" class="btn-limpiar" id="det-next">Siguiente</button>
+        </span>
+      </div>
+      <div class="detalle-marco"><table>
+        <thead><tr><th>Nid</th><th>País</th><th>Inicio</th><th>Fin</th><th>Horas hábiles</th><th>Cumple</th>${extra}</tr></thead>
+        <tbody id="detalle-cuerpo"></tbody>
+      </table></div>`;
+    document.getElementById("f-nid").addEventListener("input", e => {
+      busqueda[vistaId].nid = e.target.value.trim();
+      busqueda[vistaId].pagina = 0;
+      programarRecorte();
+    });
+    document.getElementById("det-prev").addEventListener("click", () => {
+      if (busqueda[vistaId].pagina <= 0) return;
+      busqueda[vistaId].pagina--;
+      programarRecorte(true);
+    });
+    document.getElementById("det-next").addEventListener("click", () => {
+      busqueda[vistaId].pagina++;
+      programarRecorte(true);
+    });
+    document.getElementById("det-descarga").addEventListener("click", () => exportar("csv"));
+    document.getElementById("det-hoja").addEventListener("click", () => exportar("hoja"));
+  }
+  const nota = document.getElementById("detalle-nota");
+  if (nota) {
+    const periodo = busqueda[vistaId].periodo;
+    nota.innerHTML = periodo
+      ? `Nid de ${esc(v.nombre)}, solo ${esc(etiquetaLarga(periodo, v.grano))}. <button type="button" class="btn-limpiar" id="det-quitar-periodo">Ver todo el recorte</button>`
+      : `Nid de ${esc(v.nombre)}. La más reciente primero.`;
+    const quitar = document.getElementById("det-quitar-periodo");
+    if (quitar) quitar.addEventListener("click", () => {
+      busqueda[vistaId].periodo = "";
+      busqueda[vistaId].pagina = 0;
+      document.querySelectorAll("#pagina .mes-hit").forEach(el => el.classList.remove("elegida"));
+      programarRecorte(true);
+    });
+  }
+  const cuerpo = document.getElementById("detalle-cuerpo");
+  if (window.CARGANDO_TABLA || !window.PAGINA) {
+    const msg = window.SERIES && window.SERIES.length ? "Actualizando…" : "Cargando…";
+    cuerpo.innerHTML = `<tr><td colspan="${cols}">${msg}</td></tr>`;
+    return;
+  }
+  const pag = window.PAGINA;
+  const muestra = pag.filas || [];
+  const total = pag.total || 0;
+  const ultima = Math.max(0, Math.ceil(total / TAM) - 1);
+  cuerpo.innerHTML = muestra.length ? muestra.map(f => {
+    const extraCel = v.id === "aprobologia"
+      ? `<td>${esc(tiempoHabil(f.horas))}</td><td>${esc(f.agente || "—")}</td><td>${f.comite === "Si" ? "Sí" : "No"}</td><td>${esc(f.estado || "—")}</td>`
+      : (v.id === "pricing" ? `<td>${esc(f.tipo)}</td>` : (v.id === "sla" || v.id === "inmo" ? `<td>${esc(f.etapa)}</td>` : ""));
+    const cumple = f.cumple === "Si" ? `<span class="si">Sí</span>` : `<span class="no">No</span>`;
+    const horas = f.horas == null ? "—" : nf1.format(f.horas);
+    return `<tr><td class="num">${esc(f.nid)}</td><td>${esc(rotuloPais(f.pais))}</td><td class="num">${esc(fechaCorta(f.inicio))}</td><td class="num">${esc(fechaCorta(f.fin))}</td><td class="num">${horas}</td><td>${cumple}</td>${extraCel}</tr>`;
+  }).join("") : `<tr><td colspan="${cols}">No hay nid con estos filtros.</td></tr>`;
+  const desde = total ? busqueda[vistaId].pagina * TAM + 1 : 0;
+  const hasta = busqueda[vistaId].pagina * TAM + muestra.length;
+  document.getElementById("detalle-cuenta").textContent = total ? `${nf.format(desde)}–${nf.format(hasta)} de ${nf.format(total)}` : "0 nid.";
+  document.getElementById("det-prev").disabled = busqueda[vistaId].pagina <= 0;
+  document.getElementById("det-next").disabled = busqueda[vistaId].pagina >= ultima;
+}
+function tiempoHabil(horas) {
+  if (horas == null || horas === "") return "—";
+  const h = Number(horas);
+  const dias = Math.floor(h / 24);
+  const hh = Math.floor(h % 24);
+  const mm = Math.floor((h - Math.floor(h)) * 60);
+  const pad = n => String(n).padStart(2, "0");
+  if (dias > 0) return `${dias}d ${pad(hh)}h :${pad(mm)}m`;
+  return `${pad(hh)}h :${pad(mm)}m`;
+}
+function celdaCsv(v) {
+  const s = v == null ? "" : String(v);
+  return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function exportar(modo) {
+  const csv = document.getElementById("det-descarga");
+  const hoja = document.getElementById("det-hoja");
+  const botones = [csv, hoja].filter(Boolean);
+  const tabla = tablaExportLocal(pedidoActual());
+  if (tabla.error) { window.alert(tabla.error); return; }
+  const ventana = modo === "hoja" ? window.open("", "_blank") : null;
+  botones.forEach(b => { b.disabled = true; });
+  if (modo === "hoja" && hoja) hoja.textContent = "Creando hoja…";
+  if (modo !== "hoja" && csv) csv.textContent = "Preparando…";
+  const listo = () => {
+    botones.forEach(b => { b.disabled = false; });
+    if (csv) csv.textContent = "Descargar CSV";
+    if (hoja) hoja.textContent = "Hoja de cálculo";
+  };
+  if (modo !== "hoja") {
+    const lineas = [tabla.encabezado.join(";")].concat(tabla.cuerpo.map(fila => fila.map(celdaCsv).join(";")));
+    const blob = new Blob(["\uFEFF" + lineas.join("\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "orquestador-" + (pedidoActual().vista || "sla") + ".csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    listo();
+    return;
+  }
+  if (!(window.google && google.script && google.script.run)) { listo(); if (ventana) ventana.close(); return; }
+  google.script.run.withSuccessHandler(res => {
+    listo();
+    if (!res || res.error) {
+      if (ventana) ventana.close();
+      window.alert((res && res.error) || "No se pudo crear la hoja");
+      return;
+    }
+    if (ventana) ventana.location = res.url;
+    else window.open(res.url, "_blank");
+  }).withFailureHandler(err => {
+    listo();
+    if (ventana) ventana.close();
+    window.alert(err.message || "No se pudo exportar");
+  }).crearHoja({ nombre: tabla.nombre, encabezado: tabla.encabezado, cuerpo: tabla.cuerpo });
+}
+</script>

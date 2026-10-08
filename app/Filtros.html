@@ -1,0 +1,261 @@
+<script>
+/* El recorte y el panel con el que abre Tableau. */
+function radio(name) {
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el ? el.value : "";
+}
+function marcas(id) {
+  const root = document.getElementById(id);
+  if (!root) return null;
+  const items = [...root.querySelectorAll("input[data-valor]")];
+  const todo = root.querySelector("input[data-todo]");
+  if (!items.length || (todo && todo.checked)) return null;
+  const on = items.filter(x => x.checked).map(x => x.dataset.valor);
+  if (!on.length || on.length === items.length) return null;
+  return new Set(on);
+}
+function val(id) {
+  const el = document.getElementById(id);
+  return el ? el.value : "";
+}
+function filtros() {
+  if (vistaId === "aprobologia") {
+    return {
+      pais: radio("fa-pais"),
+      cumple: radio("fa-cumple"),
+      comite: radio("fa-comite"),
+      envioDesde: val("fa-envio-desde"),
+      envioHasta: val("fa-envio-hasta"),
+      finDesde: val("fa-fin-desde"),
+      finHasta: val("fa-fin-hasta"),
+      iniDesde: val("fa-ini-desde"),
+      iniHasta: val("fa-ini-hasta"),
+      propietario: marcas("fa-propietario"),
+      agente: marcas("fa-agente"),
+      estado: val("fa-estado"),
+    };
+  }
+  const id = vistaId;
+  return {
+    pais: radio(id + "-pais"),
+    cumple: val(id + "-cumple") || radio(id + "-cumple"),
+    comite: val(id + "-comite"),
+    envioDesde: val(id + "-envio-desde"),
+    envioHasta: val(id + "-envio-hasta"),
+    finDesde: val(id + "-fin-desde"),
+    finHasta: val(id + "-fin-hasta"),
+    iniDesde: val(id + "-ini-desde"),
+    iniHasta: val(id + "-ini-hasta"),
+    agente: marcas(id + "-agente"),
+    equipo: marcas(id + "-equipo"),
+    propietario: marcas(id + "-propietario"),
+    dueno: marcas(id + "-dueno"),
+    respuesta: marcas(id + "-respuesta"),
+    reintentos: marcas(id + "-reintentos"),
+    etapa: radio(id + "-etapa"),
+    automatizacion: radio(id + "-auto"),
+  };
+}
+function resumenLista(root) {
+  const items = [...root.querySelectorAll("input[data-valor]")];
+  const todo = root.querySelector("input[data-todo]");
+  const on = items.filter(x => x.checked);
+  const summary = root.querySelector("summary");
+  if (!summary) return;
+  if (!items.length || (todo && todo.checked) || on.length === items.length) summary.textContent = "(Todo)";
+  else if (on.length === 1) summary.textContent = on[0].dataset.valor;
+  else summary.textContent = `${on.length} seleccionados`;
+}
+function llenarLista(id, valores) {
+  const root = document.getElementById(id);
+  if (!root) return;
+  const lista = root.querySelector(".desplegable-lista");
+  lista.innerHTML = `<label><input type="checkbox" data-todo checked> (Todo)</label>`
+    + valores.map(v => `<label><input type="checkbox" data-valor="${esc(v)}" checked> ${esc(v)}</label>`).join("");
+  if (root.dataset.ligado) return;
+  root.dataset.ligado = "1";
+  root.addEventListener("change", e => {
+    if (root.dataset.ajustando) return;
+    const todo = root.querySelector("input[data-todo]");
+    const items = [...root.querySelectorAll("input[data-valor]")];
+    root.dataset.ajustando = "1";
+    if (e.target === todo) items.forEach(x => { x.checked = todo.checked; });
+    else todo.checked = items.length > 0 && items.every(x => x.checked);
+    delete root.dataset.ajustando;
+    resumenLista(root);
+    repintarDatos();
+  });
+}
+function radios(name, opciones) {
+  const items = [{ v: "", t: "(Todo)" }, ...opciones];
+  return `<div class="radios">${items.map((o, i) =>
+    `<label><input type="radio" name="${name}" value="${esc(o.v)}"${i ? "" : " checked"}> ${esc(o.t)}</label>`
+  ).join("")}</div>`;
+}
+function rango(id, etiqueta, pista) {
+  return `<div class="filtro filtro-fecha"><span>${etiqueta}</span>
+    ${pista ? `<small class="aclaracion">${pista}</small>` : ""}
+    <span class="rango">
+      <label>Desde<input id="${id}-desde" type="date"></label>
+      <label>Hasta<input id="${id}-hasta" type="date"></label>
+    </span>
+  </div>`;
+}
+function selectSiNo(id, etiqueta) {
+  return `<label class="filtro"><span>${etiqueta}</span>
+    <select id="${id}"><option value="">(Todo)</option><option value="Si">Sí</option><option value="No">No</option></select>
+  </label>`;
+}
+function lista(id, etiqueta) {
+  return `<div class="filtro"><span>${etiqueta}</span>
+    <details class="desplegable" id="${id}"><summary>(Todo)</summary><div class="desplegable-lista"></div></details>
+  </div>`;
+}
+function armarPaneles() {
+  const pais = [{ v: "Colombia", t: "Colombia" }, { v: "Mexico", t: "México" }];
+  const micro = (id, cumple, nota, pistaIni, pistaFin) => `<div class="filtros-aprobologia panel-filtro" data-vista="${id}" hidden>
+    <fieldset class="filtro"><legend>País</legend>${radios(id + "-pais", pais)}</fieldset>
+    ${rango(id + "-envio", "Fecha de Envío Seller", "Cuándo el seller envió el negocio.")}
+    ${selectSiNo(id + "-cumple", cumple)}
+    ${rango(id + "-ini", "Fecha de Inicio", pistaIni)}
+    ${rango(id + "-fin", "Fecha de Fin", pistaFin)}
+    <label class="filtro"><span>Comité en curso</span>
+      <select id="${id}-comite"><option value="">(Todo)</option><option value="No">No</option><option value="Si">Sí</option></select>
+    </label>
+    <p class="nota-filtro"><b>Nota.</b> ${nota}</p>
+    ${lista(id + "-agente", "Agente")}
+  </div>`;
+  const sla = `<div class="filtros-aprobologia panel-filtro" data-vista="sla" hidden>
+    <fieldset class="filtro"><legend>País</legend>${radios("sla-pais", pais)}</fieldset>
+    ${lista("sla-equipo", "Equipo Sellers")}
+    ${lista("sla-propietario", "Propietario de aprobación")}
+    ${lista("sla-dueno", "Propietario del negocio")}
+    ${rango("sla-envio", "Fecha de Envío Seller", "Cuándo el seller envió el negocio.")}
+    ${rango("sla-fin", "Fecha de Respuesta Orquestador", "Cuándo respondió el orquestador. La barra usa esta fecha.")}
+    ${lista("sla-respuesta", "Respuesta final orquestador")}
+    ${lista("sla-reintentos", "Tuvo reintentos")}
+    <fieldset class="filtro"><legend>Cumplimiento</legend>${radios("sla-cumple", [{ v: "Si", t: "Sí" }, { v: "No", t: "No" }])}</fieldset>
+  </div>`;
+  const inmo = `<div class="filtros-aprobologia panel-filtro" data-vista="inmo" hidden>
+    <fieldset class="filtro"><legend>País</legend>${radios("inmo-pais", pais)}</fieldset>
+    <fieldset class="filtro"><legend>Automatización</legend>${radios("inmo-auto", [{ v: "Automatico", t: "Automático" }, { v: "Manual", t: "Manual" }])}</fieldset>
+    ${rango("inmo-envio", "Fecha de Envío Seller", "Cuándo el seller envió el negocio.")}
+    ${rango("inmo-fin", "Fecha de Respuesta Orquestador", "Cierre del comité de inmobiliaria. La barra usa esta fecha.")}
+    <fieldset class="filtro"><legend>Cumpliendo SLA</legend>${radios("inmo-cumple", [{ v: "Si", t: "Sí" }, { v: "No", t: "No" }])}</fieldset>
+    <fieldset class="filtro"><legend>Respuesta orquestador</legend>${radios("inmo-etapa", [{ v: "Aprobado", t: "Aprobado" }, { v: "En proceso", t: "En proceso" }, { v: "Rechazado", t: "Rechazado" }])}</fieldset>
+  </div>`;
+  document.getElementById("paneles").innerHTML =
+    micro("documentos", "Cumplimiento Revisión Documentos", "Fecha de inicio: fecha de envío seller. Fecha de fin: fecha de aprobación o rechazo de la revisión de documentos.", "Fecha de envío seller.", "Aprobación o rechazo de la revisión de documentos. La barra usa esta fecha.")
+    + micro("pricing", "Cumplimiento Pricing", "Fecha de inicio: fecha de aprobación de checks automáticos. Fecha de fin: fecha de aprobación o rechazo de Pricing, manual o automático.", "Aprobación de los checks automáticos.", "Aprobación o rechazo de Pricing. La barra usa esta fecha.")
+    + micro("remo", "Cumplimiento Remo", "Fecha de inicio: fecha de aprobación de revisión de documentos. Fecha de fin: fecha de aprobación o rechazo de remodelación.", "Aprobación de la revisión de documentos.", "Aprobación o rechazo de remodelación. La barra usa esta fecha.")
+    + sla + inmo;
+}
+function marcarRadio(name, value) {
+  const el = document.querySelector(`input[name="${name}"][value="${CSS.escape(value)}"]`);
+  if (el) el.checked = true;
+}
+function poner(id, valor) {
+  const el = document.getElementById(id);
+  if (el) el.value = valor;
+}
+function hoyISO() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+}
+const PROPIETARIOS_TABLERO = [
+  "aprobologo1@habi.co", "aprobologo1@tuhabi.mx",
+  "aprobologo2@habi.co", "aprobologo2@tuhabi.mx",
+  "aprobologo3@habi.co", "aprobologo3@tuhabi.mx",
+  "aprobologo4@habi.co", "aprobologo4@tuhabi.mx",
+  "automatico@habi.com",
+];
+const PROPIETARIOS_APROBOLOGIA = [
+  "aprobologo1@habi.co", "aprobologo1@tuhabi.mx",
+  "aprobologo2@habi.co", "aprobologo2@tuhabi.mx",
+  "aprobologo3@habi.co", "aprobologo3@tuhabi.mx",
+  "aprobologo4@habi.co", "automatico@habi.com",
+];
+function marcarLista(id, elegidos) {
+  const root = document.getElementById(id);
+  if (!root) return;
+  const set = new Set(elegidos);
+  const items = [...root.querySelectorAll("input[data-valor]")];
+  items.forEach(x => { x.checked = set.has(x.dataset.valor); });
+  const todo = root.querySelector("input[data-todo]");
+  if (todo) todo.checked = items.length > 0 && items.every(x => x.checked);
+  resumenLista(root);
+}
+function aplicarPredeterminados() {
+  document.querySelectorAll(".panel-filtro select").forEach(el => { el.value = ""; });
+  document.querySelectorAll(".panel-filtro input[type='date']").forEach(el => { el.value = ""; });
+  document.querySelectorAll(".panel-filtro input[type='radio'][value='']").forEach(el => { el.checked = true; });
+  document.querySelectorAll(".panel-filtro .desplegable").forEach(root => {
+    root.querySelectorAll("input").forEach(x => { x.checked = true; });
+    resumenLista(root);
+  });
+  const hoy = hoyISO();
+  for (const id of ["documentos", "pricing", "remo"]) {
+    marcarRadio(id + "-pais", "Colombia");
+    poner(id + "-comite", "No");
+    poner(id + "-envio-desde", id === "documentos" ? "2025-05-26" : "2025-06-01");
+    poner(id + "-envio-hasta", hoy);
+    poner(id + "-ini-desde", id === "documentos" ? "2025-05-26" : "2025-05-30");
+    poner(id + "-ini-hasta", hoy);
+    poner(id + "-fin-desde", "2025-05-26");
+    poner(id + "-fin-hasta", hoy);
+  }
+  marcarRadio("fa-pais", "Colombia");
+  marcarRadio("fa-comite", "No");
+  poner("fa-envio-desde", "2025-06-01");
+  poner("fa-envio-hasta", hoy);
+  poner("fa-ini-desde", "2025-05-30");
+  poner("fa-ini-hasta", hoy);
+  poner("fa-fin-desde", "2025-05-26");
+  poner("fa-fin-hasta", hoy);
+  marcarLista("sla-propietario", PROPIETARIOS_TABLERO);
+  poner("sla-envio-desde", "2025-06-01");
+  poner("sla-envio-hasta", hoy);
+  poner("sla-fin-desde", "2025-06-04");
+  poner("sla-fin-hasta", hoy);
+  marcarRadio("inmo-pais", "Mexico");
+}
+function listaProvisional(id) {
+  const root = document.getElementById(id);
+  if (!root) return true;
+  const items = [...root.querySelectorAll("input[data-valor]")].map(x => x.dataset.valor);
+  if (!items.length) return true;
+  return items.length === PROPIETARIOS_TABLERO.length && PROPIETARIOS_TABLERO.every(p => items.indexOf(p) >= 0);
+}
+function pedidoActual() {
+  const f = filtros();
+  const lista = s => (s ? [...s] : []);
+  let propietario = lista(f.propietario);
+  if (vistaId === "sla" && listaProvisional("sla-propietario")) propietario = PROPIETARIOS_TABLERO.slice();
+  const listaAprob = document.getElementById("fa-propietario");
+  const aprobSinLista = !listaAprob || !listaAprob.querySelector("input[data-valor]");
+  if (vistaId === "aprobologia" && aprobSinLista) propietario = PROPIETARIOS_APROBOLOGIA.slice();
+  return {
+    vista: vistaId,
+    pais: f.pais || "",
+    cumple: f.cumple || "",
+    comite: f.comite || "",
+    estado: f.estado || "",
+    etapa: f.etapa || "",
+    automatizacion: f.automatizacion || "",
+    envioDesde: f.envioDesde || "",
+    envioHasta: f.envioHasta || "",
+    finDesde: f.finDesde || "",
+    finHasta: f.finHasta || "",
+    iniDesde: f.iniDesde || "",
+    iniHasta: f.iniHasta || "",
+    agente: lista(f.agente),
+    equipo: lista(f.equipo),
+    propietario: propietario,
+    dueno: lista(f.dueno),
+    respuesta: lista(f.respuesta),
+    reintentos: lista(f.reintentos),
+    nid: busqueda[vistaId].nid || "",
+    periodo: busqueda[vistaId].periodo || "",
+    pagina: busqueda[vistaId].pagina || 0,
+  };
+}
+</script>
