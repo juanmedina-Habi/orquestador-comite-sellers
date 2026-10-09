@@ -387,6 +387,7 @@ const GRUPOS_ENVIO = [
   { id: "revision", nombre: "En revisión" },
 ];
 function grupoEnvio(c, i) {
+  if (c.grupo && c.grupo[i]) return c.grupo[i];
   if (c.orq[i] === "1") return "llego";
   if (!(c.comite_curso && c.envio_pasado)) return "";
   if (c.comite_curso[i] === "1" || c.envio_pasado[i] === "1") return "curso";
@@ -417,7 +418,7 @@ function pintarDesglose() {
     });
   }
   const c = pack.t.cols;
-  const clasificado = !!(c.comite_curso && c.envio_pasado);
+  const clasificado = !!(c.grupo || (c.comite_curso && c.envio_pasado));
   const conteo = { llego: 0, curso: 0, revision: 0 };
   let fuera = 0;
   pack.idx.forEach(i => {
@@ -439,7 +440,7 @@ function pintarDesglose() {
       <b>${esc(g.nombre)}</b>
     </button>`;
   }).join("");
-  const aviso = clasificado ? "" : `<p class="desglose-nota">Comité en curso y en revisión se están completando. Sin llegar al orquestador: ${nf.format(fuera)}.</p>`;
+  const aviso = clasificado ? "" : `<p class="desglose-nota">${esc(window.ERROR_DESGLOSE || ("Comité en curso y en revisión se están completando. Sin llegar al orquestador: " + nf.format(fuera) + "."))}</p>`;
   const nombreGrupo = id => (GRUPOS_ENVIO.find(g => g.id === id) || {}).nombre || "";
   const filas = pack.idx.filter(i => !elegido || grupoEnvio(c, i) === elegido).sort((a, b) => {
     if (c.envio[a] !== c.envio[b]) return c.envio[a] < c.envio[b] ? -1 : 1;
@@ -491,14 +492,27 @@ function moverGrupo(delta) {
   busqueda.funnel.paginaGrupo = Math.max(0, (busqueda.funnel.paginaGrupo || 0) + delta);
   pintarDesglose();
 }
+function horaTexto(hora) {
+  if (hora == null || hora === "") return "";
+  const texto = String(hora);
+  if (texto.indexOf(":") >= 0) return texto;
+  const n = Number(texto);
+  if (!Number.isFinite(n)) return "";
+  const s = Math.max(0, Math.round(n));
+  const hh = String(Math.floor(s / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
 function fechaHora(iso, hora) {
   const f = fechaCorta(iso);
   if (!f) return "";
-  return hora ? f + " " + hora : f;
+  const h = horaTexto(hora);
+  return h ? f + " " + h : f;
 }
 function funnelActual() {
   const t = window.TABLAS && window.TABLAS.funnel;
-  return !!(t && t.cols && t.cols.fecha_doc && t.cols.etapa && t.cols.estado && t.cols.entro && t.cols.hora_envio && t.cols.comite_curso && t.cols.envio_pasado);
+  return !!(t && t.cols && t.cols.grupo);
 }
 let relojFunnel = 0;
 let intentosFunnel = 0;
@@ -514,6 +528,7 @@ function vigilarFunnel() {
   relojFunnel = setInterval(async () => {
     try {
       const boot = await llamarServidor("getBootstrap");
+      window.ERROR_DESGLOSE = (boot && boot.funnelError) || "";
       if (!boot || !boot.funnel) {
         llamarServidor("prepararFunnel").catch(() => {});
         return;

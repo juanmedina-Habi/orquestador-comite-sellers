@@ -189,6 +189,7 @@ function estadoPublico_() {
     corriendo: refreshEnCurso_(),
     hora: '7:00',
     funnel: funnelListo_(),
+    funnelError: props.getProperty('FUNNEL_ERROR') || '',
     errorRefresh: props.getProperty('SNAP_ERROR') || '',
     errores: meta.errores || [],
   };
@@ -266,7 +267,7 @@ function especificaciones_() {
     { nombre: 'sla', sql: sqlSla_(), string: ['nid', 'pais', 'propietario', 'equipo', 'dueno', 'respuesta', 'reintentos', 'etapa'], fecha: ['envio', 'fin'], numero: ['horas'] },
     { nombre: 'micro', sql: sqlMicro_(), string: ['vista', 'nid', 'pais', 'comite', 'agente', 'propietario', 'estado', 'tipo'], fecha: ['envio', 'inicio', 'fin'], numero: ['horas'] },
     { nombre: 'inmo', sql: sqlInmo_(), string: ['nid', 'pais', 'etapa', 'automatizacion'], fecha: ['envio', 'fin'], numero: ['horas'] },
-    { nombre: 'funnel', version: 4, sql: sqlFunnel_(), string: ['nid', 'pais', 'equipo', 'propietario', 'dueno', 'estado', 'etapa', 'entro', 'inc_doc', 'inc_checks', 'inc_pricing', 'inc_hesh', 'inc_aprob', 'hora_envio', 'hora_doc', 'hora_remo', 'hora_checks', 'hora_pricing', 'hora_hesh', 'hora_aprob', 'hora_fin'], fecha: ['envio', 'fecha_doc', 'fecha_remo', 'fecha_checks', 'fecha_pricing', 'fecha_hesh', 'fecha_aprob', 'fin', 'fecha_respuesta'], numero: BITS_FUNNEL },
+    { nombre: 'funnel', version: 5, sql: sqlFunnel_(), string: ['nid', 'pais', 'equipo', 'propietario', 'dueno', 'estado', 'etapa', 'entro', 'grupo', 'inc_doc', 'inc_checks', 'inc_pricing', 'inc_hesh', 'inc_aprob'], fecha: ['envio', 'fecha_doc', 'fecha_remo', 'fecha_checks', 'fecha_pricing', 'fecha_hesh', 'fecha_aprob', 'fin', 'fecha_respuesta'], numero: BITS_FUNNEL.concat(HORAS_FUNNEL) },
   ];
 }
 
@@ -280,6 +281,8 @@ var BITS_FUNNEL = [
   'rev_aprob', 'aprob_ok', 'aprob_curso', 'aprob_recha',
   'comite_curso', 'envio_pasado',
 ];
+
+var HORAS_FUNNEL = ['hora_envio', 'hora_doc', 'hora_remo', 'hora_checks', 'hora_pricing', 'hora_hesh', 'hora_aprob', 'hora_fin'];
 
 function sqlSla_() {
   return [
@@ -347,7 +350,7 @@ function sqlMicro_() {
 function funnelListo_() {
   var meta = leerMeta_();
   var info = (meta.tablas && meta.tablas.funnel) || {};
-  return !!(info.fileId && !info.error && Number(info.version) >= 4);
+  return !!(info.fileId && !info.error && Number(info.version) >= 5);
 }
 
 function funnelEnCurso_() {
@@ -385,8 +388,9 @@ function refreshFunnel() {
     especificaciones_().forEach(function (s) { if (s.nombre === 'funnel') spec = s; });
     spec.ref = lanzarConsulta_(spec.sql);
     var inicio = Date.now();
-    while (!jobListo_(spec.ref) && Date.now() - inicio < 10 * 60 * 1000) Utilities.sleep(1500);
+    while (!jobListo_(spec.ref) && Date.now() - inicio < 3.5 * 60 * 1000) Utilities.sleep(1500);
     if (!jobListo_(spec.ref)) throw new Error('BigQuery no terminó a tiempo');
+    props.deleteProperty('FUNNEL_ERROR');
     var meta = leerMeta_();
     var tablas = meta.tablas || {};
     var viejo = tablas.funnel && tablas.funnel.fileId;
@@ -397,6 +401,7 @@ function refreshFunnel() {
       try { DriveApp.getFileById(viejo).setTrashed(true); } catch (e2) {}
     }
   } catch (e) {
+    props.setProperty('FUNNEL_ERROR', String(e.message || e).slice(0, 280));
     var metaError = leerMeta_();
     var tablasError = metaError.tablas || {};
     tablasError.funnel = Object.assign({}, tablasError.funnel, { error: e.message });
@@ -412,6 +417,10 @@ function refreshFunnel() {
 
 function bit_(expr) {
   return 'IF(' + expr + ', 1, 0)';
+}
+
+function segundos_(col) {
+  return 'IF(' + col + ' IS NULL, NULL, EXTRACT(HOUR FROM ' + col + ') * 3600 + EXTRACT(MINUTE FROM ' + col + ') * 60 + EXTRACT(SECOND FROM ' + col + '))';
 }
 
 function sqlFunnel_() {
@@ -436,17 +445,22 @@ function sqlFunnel_() {
     '  FORMAT_DATE("%F", DATE(respuesta_aprobologia_pais)) AS fecha_aprob,',
     '  FORMAT_DATE("%F", DATE(fin_comite_pais)) AS fin,',
     '  FORMAT_DATE("%F", DATE(fecha_respuesta)) AS fecha_respuesta,',
-    '  IFNULL(FORMAT_DATETIME("%T", fecha_envio_seller), "") AS hora_envio,',
-    '  IFNULL(FORMAT_DATETIME("%T", respuesta_doc_pais), "") AS hora_doc,',
-    '  IFNULL(FORMAT_DATETIME("%T", respuesta_remo_pais), "") AS hora_remo,',
-    '  IFNULL(FORMAT_DATETIME("%T", respuesta_checks_pais), "") AS hora_checks,',
-    '  IFNULL(FORMAT_DATETIME("%T", respuesta_pricing_pais), "") AS hora_pricing,',
-    '  IFNULL(FORMAT_DATETIME("%T", respuesta_hesh_pais), "") AS hora_hesh,',
-    '  IFNULL(FORMAT_DATETIME("%T", respuesta_aprobologia_pais), "") AS hora_aprob,',
-    '  IFNULL(FORMAT_DATETIME("%T", fin_comite_pais), "") AS hora_fin,',
+    '  ' + segundos_('fecha_envio_seller') + ' AS hora_envio,',
+    '  ' + segundos_('respuesta_doc_pais') + ' AS hora_doc,',
+    '  ' + segundos_('respuesta_remo_pais') + ' AS hora_remo,',
+    '  ' + segundos_('respuesta_checks_pais') + ' AS hora_checks,',
+    '  ' + segundos_('respuesta_pricing_pais') + ' AS hora_pricing,',
+    '  ' + segundos_('respuesta_hesh_pais') + ' AS hora_hesh,',
+    '  ' + segundos_('respuesta_aprobologia_pais') + ' AS hora_aprob,',
+    '  ' + segundos_('fin_comite_pais') + ' AS hora_fin,',
     '  IFNULL(equipo_sellers, "") AS equipo,',
     '  IFNULL(estado_comite, "") AS estado,',
     '  CASE WHEN flag_orquestador IS NULL THEN "" WHEN flag_orquestador THEN "Si" ELSE "No" END AS entro,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) THEN "llego"',
+    '    WHEN IFNULL(flag_comite_curso, FALSE) OR IFNULL(flag_envio_mes_pasado, FALSE) THEN "curso"',
+    '    ELSE "revision"',
+    '  END AS grupo,',
     '  CASE',
     '    WHEN NOT IFNULL(flag_orquestador, FALSE) THEN "No entró al orquestador"',
     '    WHEN respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_estado_actual, FALSE) THEN "Revisión documentos"',
