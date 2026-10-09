@@ -205,20 +205,44 @@
   th { position: sticky; top: 0; background: #FAFAFA; text-align: left; font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--linea); }
   td { padding: 8px 10px; border-bottom: 1px solid var(--linea); }
   td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .marco-embudo { overflow: auto; margin-top: 4px; }
-  .lienzo-embudo { position: relative; width: 100%; min-width: 1480px; height: 1720px; }
+  .marco-embudo { overflow: visible; margin-top: 4px; }
+  .lienzo-embudo { position: relative; width: 100%; height: 1120px; }
   .embudo-nota { margin: 10px 0 0; color: var(--suave); font-size: 12px; line-height: 1.45; }
   .caja-pos {
-    position: absolute; box-sizing: border-box; overflow: hidden;
-    display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;
-    background: #fff; border: 1px solid var(--linea); border-radius: 10px; padding: 4px 6px;
+    position: absolute; box-sizing: border-box; overflow: visible;
+    background: #fff; border: 1px solid var(--linea); border-radius: 8px;
   }
-  .caja-pos span { display: block; font-size: 11px; line-height: 1.2; color: #3f3f46; }
-  .caja-pos strong { display: block; margin-top: 2px; font-size: 16px; font-variant-numeric: tabular-nums; line-height: 1.05; }
-  .caja-pos small { display: block; margin-top: 2px; font-size: 11px; color: var(--suave); }
+  .caja-vista {
+    height: 100%; overflow: hidden; display: flex; flex-direction: column;
+    justify-content: center; align-items: center; text-align: center; padding: 2px 4px;
+  }
+  .caja-vista span, .caja-vista small {
+    display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .caja-pos span { font-size: 10px; line-height: 1.15; color: #3f3f46; }
+  .caja-pos strong { display: block; margin-top: 1px; font-size: 13px; font-variant-numeric: tabular-nums; line-height: 1.05; }
+  .caja-pos small { margin-top: 1px; font-size: 10px; color: var(--suave); }
+  .caja-tip {
+    display: none; position: absolute; z-index: 30; left: 50%; top: calc(100% + 6px); transform: translateX(-50%);
+    min-width: 176px; max-width: 240px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--linea);
+    background: #fff; box-shadow: 0 10px 28px rgba(23,23,23,.16); text-align: center; pointer-events: none;
+  }
+  .caja-tip span { white-space: normal; font-size: 12px; line-height: 1.3; }
+  .caja-tip strong { font-size: 22px; margin-top: 4px; }
+  .caja-tip small { font-size: 12px; }
+  .caja-pos:hover { z-index: 40; }
+  .caja-pos:hover .caja-tip { display: block; }
+  .caja-pos.tip-izq .caja-tip { left: auto; right: 0; transform: none; }
   .caja-pos.total { background: #134E4A; border-color: #134E4A; }
   .caja-pos.total span, .caja-pos.total small { color: rgba(255,255,255,.82); }
-  .caja-pos.total strong { color: #fff; font-size: 26px; }
+  .caja-pos.total strong { color: #fff; font-size: 20px; }
+  .caja-pos.total .caja-tip { background: #134E4A; border-color: #134E4A; }
+  .caja-pos.total .caja-tip strong { font-size: 26px; }
+  .caja-pos.sigue .caja-tip, .caja-pos.etapa .caja-tip { background: #F0FDFA; border-color: #99F6E4; }
+  .caja-pos.ok .caja-tip { background: #F0FDF4; border-color: #A7F3D0; }
+  .caja-pos.recha .caja-tip { background: #FFF1F2; border-color: #FECDD3; }
+  .caja-pos.curso .caja-tip { background: #FFFBEB; border-color: #FDE68A; }
+  .caja-pos.muted .caja-tip { background: #FAFAFA; }
   .caja-pos.sigue, .caja-pos.etapa { border-color: #99F6E4; background: #F0FDFA; }
   .caja-pos.sigue strong, .caja-pos.etapa strong { color: #134E4A; }
   .caja-pos.ok { border-color: #A7F3D0; background: #F0FDF4; }

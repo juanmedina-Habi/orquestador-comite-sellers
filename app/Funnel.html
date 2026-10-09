@@ -96,13 +96,19 @@ const ORIGEN_Y = 5900;
 const ANCHO_FUNNEL = 99360;
 const ALTO_FUNNEL = 70221;
 function zona(x, y, w, h, nombre, valor, base, tono) {
-  const hueco = 0.28;
+  const hueco = 0.22;
   const izquierda = (x - ORIGEN_X) / ANCHO_FUNNEL * 100 + hueco;
   const arriba = (y - ORIGEN_Y) / ALTO_FUNNEL * 100 + hueco;
-  const ancho = Math.max(w / ANCHO_FUNNEL * 100 - hueco * 2, 1.2);
-  const alto = Math.max(h / ALTO_FUNNEL * 100 - hueco * 2, 1.2);
-  const pct = tono === "total" ? "" : `<small>${pctTxt(valor, base)}</small>`;
-  return `<article class="caja-pos ${tono}" style="left:${izquierda}%;top:${arriba}%;width:${ancho}%;height:${alto}%"><span>${esc(nombre)}</span><strong>${nf.format(valor)}</strong>${pct}</article>`;
+  const ancho = Math.max(w / ANCHO_FUNNEL * 100 - hueco * 2, 1.1);
+  const alto = Math.max(h / ALTO_FUNNEL * 100 - hueco * 2, 1.1);
+  const porcentaje = tono === "total" ? "" : pctTxt(valor, base);
+  const pct = porcentaje ? `<small>${porcentaje}</small>` : "";
+  const alBorde = x + w > 82000 ? " tip-izq" : "";
+  const texto = porcentaje ? `${nombre}: ${nf.format(valor)} (${porcentaje})` : `${nombre}: ${nf.format(valor)}`;
+  return `<article class="caja-pos ${tono}${alBorde}" style="left:${izquierda}%;top:${arriba}%;width:${ancho}%;height:${alto}%" title="${esc(texto)}">
+    <div class="caja-vista"><span>${esc(nombre)}</span><strong>${nf.format(valor)}</strong>${pct}</div>
+    <div class="caja-tip"><span>${esc(nombre)}</span><strong>${nf.format(valor)}</strong>${pct}</div>
+  </article>`;
 }
 function pintarFunnel() {
   const v = VISTAS.find(x => x.id === "funnel");
@@ -164,7 +170,7 @@ function pintarFunnel() {
     <div class="marco-embudo" aria-label="Funnel ${esc(donde)}">
       <div class="lienzo-embudo">${cajas.join("")}</div>
     </div>
-    <p class="embudo-nota">Misma ubicación que el funnel de Tableau. El camino se corre a la derecha y a los lados quedan rechazado, en proceso y sin tarea. ${esc(donde)}.</p>`;
+    <p class="embudo-nota">Pasa el cursor por una caja para ver el nombre, el número y el porcentaje. ${esc(donde)}.</p>`;
 }
 let relojFunnel = 0;
 let intentosFunnel = 0;
