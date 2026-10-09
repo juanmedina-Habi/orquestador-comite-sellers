@@ -188,6 +188,7 @@ function estadoPublico_() {
     listo: snapshotListo_(),
     corriendo: refreshEnCurso_(),
     hora: '7:00',
+    funnel: funnelListo_(),
     errorRefresh: props.getProperty('SNAP_ERROR') || '',
     errores: meta.errores || [],
   };
@@ -207,7 +208,7 @@ function getBootstrap() {
 
 function getSnapshot(nombre) {
   if (!usuarioPermitido_()) return { error: 'Sin acceso' };
-  if (['sla', 'micro', 'inmo'].indexOf(nombre) < 0) return { error: 'Tabla desconocida' };
+  if (['sla', 'micro', 'inmo', 'funnel'].indexOf(nombre) < 0) return { error: 'Tabla desconocida' };
   var meta = leerMeta_();
   var info = (meta.tablas && meta.tablas[nombre]) || {};
   if (!info.fileId) return { error: 'Todavía no está el archivo del día.' };
@@ -265,8 +266,19 @@ function especificaciones_() {
     { nombre: 'sla', sql: sqlSla_(), string: ['nid', 'pais', 'propietario', 'equipo', 'dueno', 'respuesta', 'reintentos', 'etapa'], fecha: ['envio', 'fin'], numero: ['horas'] },
     { nombre: 'micro', sql: sqlMicro_(), string: ['vista', 'nid', 'pais', 'comite', 'agente', 'propietario', 'estado', 'tipo'], fecha: ['envio', 'inicio', 'fin'], numero: ['horas'] },
     { nombre: 'inmo', sql: sqlInmo_(), string: ['nid', 'pais', 'etapa', 'automatizacion'], fecha: ['envio', 'fin'], numero: ['horas'] },
+    { nombre: 'funnel', sql: sqlFunnel_(), string: ['nid', 'pais', 'equipo', 'propietario', 'dueno'], fecha: ['envio'], numero: BITS_FUNNEL },
   ];
 }
+
+var BITS_FUNNEL = [
+  'orq', 'rev_doc', 'doc_ok', 'doc_curso', 'doc_recha',
+  'rev_checks', 'checks_ok', 'checks_curso',
+  'rev_pricing', 'pricing_ok', 'pricing_curso', 'pricing_recha',
+  'rev_remo', 'remo_ok', 'remo_curso', 'remo_recha',
+  'rev_hesh', 'hesh_ok', 'hesh_curso',
+  'rev_armado', 'armado_ok', 'armado_curso', 'armado_recha',
+  'rev_aprob', 'aprob_ok', 'aprob_curso', 'aprob_recha',
+];
 
 function sqlSla_() {
   return [
@@ -328,6 +340,117 @@ function sqlMicro_() {
     '    OR (tipo_tarea = "Revision de Remodelación" AND flag_doc_avanza)',
     '    OR (tipo_tarea = "Aprobologia" AND flag_doc_avanza AND flag_remo_avanza AND flag_checks_avanza AND flag_pricing_avanza AND flag_hesh_avanza)',
     '  )',
+  ].join('\n');
+}
+
+function funnelListo_() {
+  var meta = leerMeta_();
+  var info = (meta.tablas && meta.tablas.funnel) || {};
+  return !!(info.fileId && !info.error);
+}
+
+function prepararFunnel() {
+  assertAllowed_();
+  if (funnelListo_()) return { listo: true };
+  if (!isOwner_()) return { listo: false };
+  if (refreshEnCurso_()) return { listo: false, corriendo: true };
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'refreshFunnel') return { listo: false, corriendo: true };
+  }
+  try {
+    ScriptApp.newTrigger('refreshFunnel').timeBased().after(60 * 1000).create();
+  } catch (e) {
+    return { error: 'No se pudo dejar la lectura del funnel en segundo plano.' };
+  }
+  return { listo: false, corriendo: true };
+}
+
+function refreshFunnel() {
+  var lock = null;
+  try {
+    if (!puedeRefrescar_()) return;
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(10000)) return;
+    var spec = null;
+    especificaciones_().forEach(function (s) { if (s.nombre === 'funnel') spec = s; });
+    spec.ref = lanzarConsulta_(spec.sql);
+    var inicio = Date.now();
+    while (!jobListo_(spec.ref) && Date.now() - inicio < 10 * 60 * 1000) Utilities.sleep(1500);
+    if (!jobListo_(spec.ref)) throw new Error('BigQuery no terminó a tiempo');
+    var meta = leerMeta_();
+    var tablas = meta.tablas || {};
+    var viejo = tablas.funnel && tablas.funnel.fileId;
+    var info = guardarTabla_(spec);
+    tablas.funnel = info;
+    publicarMeta_(meta.actualizado || selloBogota(), tablas, meta.errores || []);
+    if (viejo && viejo !== info.fileId) {
+      try { DriveApp.getFileById(viejo).setTrashed(true); } catch (e2) {}
+    }
+  } catch (e) {
+    var metaError = leerMeta_();
+    var tablasError = metaError.tablas || {};
+    tablasError.funnel = Object.assign({}, tablasError.funnel, { error: e.message });
+    publicarMeta_(metaError.actualizado || selloBogota(), tablasError, metaError.errores || []);
+  } finally {
+    if (lock) { try { lock.releaseLock(); } catch (e3) {} }
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      if (t.getHandlerFunction() === 'refreshFunnel') ScriptApp.deleteTrigger(t);
+    });
+  }
+}
+
+function bit_(expr) {
+  return 'IF(' + expr + ', 1, 0)';
+}
+
+function sqlFunnel_() {
+  var orq = 'IFNULL(flag_orquestador, FALSE)';
+  var doc = orq + ' AND respuesta_doc_pais IS NOT NULL';
+  var checks = orq + ' AND respuesta_checks_pais IS NOT NULL AND respuesta_doc_pais IS NOT NULL';
+  var pricing = orq + ' AND respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_checks_avanza, FALSE) AND (respuesta_pricing_pais IS NOT NULL OR IFNULL(flag_en_cola_pricing, FALSE))';
+  var remo = orq + ' AND respuesta_remo_pais IS NOT NULL AND respuesta_doc_pais IS NOT NULL';
+  var hesh = orq + ' AND respuesta_hesh_pais IS NOT NULL';
+  var armado = orq + ' AND respuesta_ensamble_pais IS NOT NULL';
+  var aprob = orq + ' AND respuesta_aprobologia_pais IS NOT NULL';
+  return [
+    'SELECT',
+    '  CAST(nid AS STRING) AS nid,',
+    '  IFNULL(pais_hubspot, "") AS pais,',
+    '  FORMAT_DATE("%F", DATE(fecha_envio_seller)) AS envio,',
+    '  IFNULL(equipo_sellers, "") AS equipo,',
+    '  IFNULL(propietario_de_aprobacion_final, "") AS propietario,',
+    '  IFNULL(propietario_del_negocio, "") AS dueno,',
+    '  ' + bit_(orq) + ' AS orq,',
+    '  ' + bit_(doc) + ' AS rev_doc,',
+    '  ' + bit_('IFNULL(flag_doc_avanza, FALSE)') + ' AS doc_ok,',
+    '  ' + bit_('IFNULL(flag_doc_estado_actual, FALSE)') + ' AS doc_curso,',
+    '  ' + bit_('IFNULL(flag_doc_recha, FALSE)') + ' AS doc_recha,',
+    '  ' + bit_(checks) + ' AS rev_checks,',
+    '  ' + bit_('IFNULL(flag_checks_avanza, FALSE)') + ' AS checks_ok,',
+    '  ' + bit_('IFNULL(flag_checks_estado_actual, FALSE)') + ' AS checks_curso,',
+    '  ' + bit_(pricing) + ' AS rev_pricing,',
+    '  ' + bit_('IFNULL(flag_pricing_avanza, FALSE)') + ' AS pricing_ok,',
+    '  ' + bit_('IFNULL(flag_princing_estado_actual, FALSE)') + ' AS pricing_curso,',
+    '  ' + bit_('IFNULL(flag_pricing_recha, FALSE)') + ' AS pricing_recha,',
+    '  ' + bit_(remo) + ' AS rev_remo,',
+    '  ' + bit_('IFNULL(flag_remo_avanza, FALSE)') + ' AS remo_ok,',
+    '  ' + bit_('IFNULL(flag_remo_estado_actual, FALSE)') + ' AS remo_curso,',
+    '  ' + bit_('IFNULL(flag_remo_recha, FALSE)') + ' AS remo_recha,',
+    '  ' + bit_(hesh) + ' AS rev_hesh,',
+    '  ' + bit_('IFNULL(flag_hesh_avanza, FALSE)') + ' AS hesh_ok,',
+    '  ' + bit_('IFNULL(flag_hesh_estado_actual, FALSE)') + ' AS hesh_curso,',
+    '  ' + bit_(armado) + ' AS rev_armado,',
+    '  ' + bit_('IFNULL(flag_ensamble_avanza, FALSE)') + ' AS armado_ok,',
+    '  ' + bit_('IFNULL(flag_ensamble_estado_actual, FALSE)') + ' AS armado_curso,',
+    '  ' + bit_('IFNULL(flag_ensamble_recha, FALSE)') + ' AS armado_recha,',
+    '  ' + bit_(aprob) + ' AS rev_aprob,',
+    '  ' + bit_('IFNULL(flag_aprobologia_avanza, FALSE)') + ' AS aprob_ok,',
+    '  ' + bit_('IFNULL(flag_aprobologia_estado_actual, FALSE)') + ' AS aprob_curso,',
+    '  ' + bit_('IFNULL(flag_aprobologia_recha, FALSE)') + ' AS aprob_recha',
+    'FROM `papyrus-delivery-data.idm_tech.tabla_funnel_orquestador`',
+    'WHERE nid IS NOT NULL',
+    '  AND (fecha_envio_seller IS NULL OR DATE(fecha_envio_seller) <= CURRENT_DATE("America/Bogota"))',
   ].join('\n');
 }
 

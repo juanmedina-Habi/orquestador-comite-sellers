@@ -144,7 +144,16 @@ function armarPaneles() {
     <fieldset class="filtro"><legend>Cumpliendo SLA</legend>${radios("inmo-cumple", [{ v: "Si", t: "Sí" }, { v: "No", t: "No" }])}</fieldset>
     <fieldset class="filtro"><legend>Respuesta orquestador</legend>${radios("inmo-etapa", [{ v: "Aprobado", t: "Aprobado" }, { v: "En proceso", t: "En proceso" }, { v: "Rechazado", t: "Rechazado" }])}</fieldset>
   </div>`;
-  document.getElementById("paneles").innerHTML =
+  const funnel = `<div class="filtros-aprobologia panel-filtro" data-vista="funnel" hidden>
+    <fieldset class="filtro"><legend>País</legend>${radios("funnel-pais", pais)}</fieldset>
+    ${rango("funnel-envio", "Fecha de Envío Seller", "Cuándo el seller envió el negocio. Vacío deja todas las fechas.")}
+    ${lista("funnel-equipo", "Equipo Sellers")}
+    ${lista("funnel-propietario", "Propietario de aprobación")}
+    ${lista("funnel-dueno", "Propietario del negocio")}
+    <label class="filtro"><span>Nid</span><input id="funnel-nid" type="search" inputmode="numeric" placeholder="Buscar nid"></label>
+    <p class="nota-filtro"><b>Nota.</b> En Tableau este funnel abre sin país ni fechas fijas. Cada tarjeta cuenta nid con la misma condición de esa hoja.</p>
+  </div>`;
+  document.getElementById("paneles").innerHTML = funnel +
     micro("documentos", "Cumplimiento Revisión Documentos", "Fecha de inicio: fecha de envío seller. Fecha de fin: fecha de aprobación o rechazo de la revisión de documentos.", "Fecha de envío seller.", "Aprobación o rechazo de la revisión de documentos. La barra usa esta fecha.")
     + micro("pricing", "Cumplimiento Pricing", "Fecha de inicio: fecha de aprobación de checks automáticos. Fecha de fin: fecha de aprobación o rechazo de Pricing, manual o automático.", "Aprobación de los checks automáticos.", "Aprobación o rechazo de Pricing. La barra usa esta fecha.")
     + micro("remo", "Cumplimiento Remo", "Fecha de inicio: fecha de aprobación de revisión de documentos. Fecha de fin: fecha de aprobación o rechazo de remodelación.", "Aprobación de la revisión de documentos.", "Aprobación o rechazo de remodelación. La barra usa esta fecha.")
@@ -217,6 +226,7 @@ function aplicarPredeterminados() {
   poner("sla-fin-desde", "2025-06-04");
   poner("sla-fin-hasta", hoy);
   marcarRadio("inmo-pais", "Mexico");
+  poner("funnel-nid", "");
 }
 function listaProvisional(id) {
   const root = document.getElementById(id);

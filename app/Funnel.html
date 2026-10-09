@@ -1,0 +1,193 @@
+<script>
+/* Funnel de envíos a comité. Las condiciones salen de las hojas de Tableau; aquí solo se cuentan. */
+function uno(c, i, k) {
+  return c[k] && c[k][i] === "1";
+}
+function filasFunnel() {
+  const t = window.TABLAS && window.TABLAS.funnel;
+  if (!t) return null;
+  const f = filtros();
+  const nid = (val("funnel-nid") || "").trim();
+  const c = t.cols;
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (f.pais && c.pais[i] !== f.pais) continue;
+    if (!enRango(c.envio[i], f.envioDesde, f.envioHasta)) continue;
+    if (f.equipo && !f.equipo.has(c.equipo[i])) continue;
+    if (f.propietario && !f.propietario.has(c.propietario[i])) continue;
+    if (f.dueno && !f.dueno.has(c.dueno[i])) continue;
+    if (nid && String(c.nid[i]).indexOf(nid) < 0) continue;
+    idx.push(i);
+  }
+  return { t: t, idx: idx };
+}
+function contarFunnel(t, idx) {
+  const c = t.cols;
+  const n = {
+    llego: 0,
+    doc: 0, docOk: 0, docCurso: 0, docRecha: 0, docNo: 0,
+    checks: 0, checksOk: 0, checksCurso: 0, checksNo: 0,
+    pricing: 0, pricingOk: 0, pricingCurso: 0, pricingRecha: 0, pricingSin: 0,
+    remo: 0, remoOk: 0, remoCurso: 0, remoRecha: 0, finalizo: 0,
+    hesh: 0, heshOk: 0, heshCurso: 0, heshNo: 0,
+    armado: 0, armadoOk: 0, armadoCurso: 0, armadoRecha: 0, armadoSin: 0,
+    aprob: 0, aprobOk: 0, aprobCurso: 0, aprobRecha: 0, aprobSin: 0,
+  };
+  idx.forEach(i => {
+    const orq = uno(c, i, "orq");
+    const revDoc = uno(c, i, "rev_doc");
+    const docOk = uno(c, i, "doc_ok");
+    const revChecks = uno(c, i, "rev_checks");
+    const checksOk = uno(c, i, "checks_ok");
+    const revPricing = uno(c, i, "rev_pricing");
+    const pricingOk = uno(c, i, "pricing_ok");
+    const revRemo = uno(c, i, "rev_remo");
+    const remoOk = uno(c, i, "remo_ok");
+    const revHesh = uno(c, i, "rev_hesh");
+    const heshOk = uno(c, i, "hesh_ok");
+    const revArmado = uno(c, i, "rev_armado");
+    const revAprob = uno(c, i, "rev_aprob");
+    if (orq) n.llego++;
+    if (revDoc) n.doc++;
+    if (revDoc && docOk) n.docOk++;
+    if (revDoc && uno(c, i, "doc_curso")) n.docCurso++;
+    if (revDoc && uno(c, i, "doc_recha")) n.docRecha++;
+    if (!revDoc && orq) n.docNo++;
+    if (revDoc && revChecks && docOk) n.checks++;
+    if (revDoc && revChecks && docOk && checksOk) n.checksOk++;
+    if (revDoc && revChecks && docOk && uno(c, i, "checks_curso")) n.checksCurso++;
+    if (revDoc && !revChecks && docOk) n.checksNo++;
+    if (revDoc && revPricing && docOk) n.pricing++;
+    if (revDoc && revPricing && docOk && pricingOk) n.pricingOk++;
+    if (revDoc && revPricing && docOk && !pricingOk && uno(c, i, "pricing_curso")) n.pricingCurso++;
+    if (revDoc && revPricing && docOk && uno(c, i, "pricing_recha")) n.pricingRecha++;
+    if (revDoc && !revPricing && checksOk && docOk) n.pricingSin++;
+    if (revDoc && revRemo && docOk) n.remo++;
+    if (revDoc && revRemo && docOk && remoOk) n.remoOk++;
+    if (revDoc && revRemo && docOk && uno(c, i, "remo_curso")) n.remoCurso++;
+    if (revDoc && revRemo && docOk && uno(c, i, "remo_recha")) n.remoRecha++;
+    if (revDoc && docOk && pricingOk && remoOk) n.finalizo++;
+    if (revDoc && revHesh && docOk) n.hesh++;
+    if (revDoc && docOk && heshOk) n.heshOk++;
+    if (revDoc && revHesh && docOk && uno(c, i, "hesh_curso")) n.heshCurso++;
+    if (revDoc && !revHesh && docOk) n.heshNo++;
+    if (revArmado && docOk && heshOk) n.armado++;
+    if (revArmado && docOk && heshOk && uno(c, i, "armado_ok")) n.armadoOk++;
+    if (revArmado && docOk && heshOk && uno(c, i, "armado_curso")) n.armadoCurso++;
+    if (revArmado && docOk && heshOk && uno(c, i, "armado_recha")) n.armadoRecha++;
+    if (!revArmado && docOk && heshOk) n.armadoSin++;
+    if (revAprob && docOk && heshOk) n.aprob++;
+    if (docOk && heshOk && uno(c, i, "aprob_ok")) n.aprobOk++;
+    if (docOk && heshOk && uno(c, i, "aprob_curso")) n.aprobCurso++;
+    if (docOk && heshOk && uno(c, i, "aprob_recha")) n.aprobRecha++;
+    if (!revAprob && docOk && heshOk) n.aprobSin++;
+  });
+  n.envios = idx.length;
+  n.noLlego = n.envios - n.llego;
+  return n;
+}
+function pctTxt(parte, base) {
+  if (!base) return "—";
+  return nf1.format((100 * parte) / base) + "%";
+}
+function estadoFunnel(nombre, valor, base, tono) {
+  return `<div class="funnel-estado"><span><i class="tono-${tono}"></i>${esc(nombre)}</span><b>${nf.format(valor)}<small>${pctTxt(valor, base)}</small></b></div>`;
+}
+function columnaFunnel(titulo, total, base, filas) {
+  return `<article class="funnel-etapa"><h3>${esc(titulo)}</h3><p class="funnel-total">${nf.format(total)}</p><p class="funnel-base">${esc(base)}</p>${filas}</article>`;
+}
+function pintarFunnel() {
+  const v = VISTAS.find(x => x.id === "funnel");
+  document.getElementById("titulo").textContent = v.nombre;
+  document.getElementById("subtitulo").textContent = v.nota;
+  const detalle = document.getElementById("detalle");
+  detalle.hidden = true;
+  detalle.innerHTML = "";
+  detalleArmada = "";
+  const pagina = document.getElementById("pagina");
+  const pack = filasFunnel();
+  if (!pack) {
+    const extra = window.ERROR_FUNNEL ? ` ${esc(window.ERROR_FUNNEL)}` : " Si acabas de publicar, vuelve a esta pestaña en un minuto.";
+    pagina.innerHTML = `<p class="aviso-espera">El funnel se está preparando con la lectura del día. Las pestañas de SLA siguen disponibles.${extra}</p>`;
+    return;
+  }
+  const n = contarFunnel(pack.t, pack.idx);
+  const pais = radio("funnel-pais");
+  const donde = pais ? rotuloPais(pais) : "Todos los países";
+  pagina.innerHTML = `
+    <div class="franja">
+      <div>
+        <h2>Funnel Orquestador Comité Sellers</h2>
+        <p>${esc(donde)} · ${nf.format(n.envios)} envíos</p>
+      </div>
+    </div>
+    <div class="funnel">
+      ${columnaFunnel("Envíos a comité", n.envios, "nid enviados",
+        estadoFunnel("Llegó a orquestador", n.llego, n.envios, "ok")
+        + estadoFunnel("No llegó", n.noLlego, n.envios, "muted"))}
+      ${columnaFunnel("Revisión documentos", n.doc, pctTxt(n.doc, n.llego) + " de los que llegaron",
+        estadoFunnel("Aprobado", n.docOk, n.doc, "ok")
+        + estadoFunnel("En curso", n.docCurso, n.doc, "curso")
+        + estadoFunnel("Rechazado", n.docRecha, n.doc, "recha")
+        + estadoFunnel("No inició", n.docNo, n.llego, "muted"))}
+      ${columnaFunnel("Checks pricing", n.checks, pctTxt(n.checks, n.docOk) + " de documentos aprobados",
+        estadoFunnel("Aprobado", n.checksOk, n.checks, "ok")
+        + estadoFunnel("En curso", n.checksCurso, n.checks, "curso")
+        + estadoFunnel("No creado", n.checksNo, n.docOk, "muted"))}
+      ${columnaFunnel("Pricing", n.pricing, pctTxt(n.pricing, n.checksOk) + " de checks aprobados",
+        estadoFunnel("Aprobado", n.pricingOk, n.pricing, "ok")
+        + estadoFunnel("En curso", n.pricingCurso, n.pricing, "curso")
+        + estadoFunnel("Rechazado", n.pricingRecha, n.pricing, "recha")
+        + estadoFunnel("Sin actividad", n.pricingSin, n.checksOk, "muted"))}
+      ${columnaFunnel("Remodelación", n.remo, pctTxt(n.remo, n.docOk) + " de documentos aprobados",
+        estadoFunnel("Aprobado", n.remoOk, n.remo, "ok")
+        + estadoFunnel("En curso", n.remoCurso, n.remo, "curso")
+        + estadoFunnel("Rechazado", n.remoRecha, n.remo, "recha"))}
+      ${columnaFunnel("Remo y pricing", n.finalizo, pctTxt(n.finalizo, n.llego) + " de los que llegaron", "")}
+      ${columnaFunnel("Hesh", n.hesh, pctTxt(n.hesh, n.docOk) + " de documentos aprobados",
+        estadoFunnel("Aprobado", n.heshOk, n.docOk, "ok")
+        + estadoFunnel("En curso", n.heshCurso, n.hesh, "curso")
+        + estadoFunnel("No creado", n.heshNo, n.docOk, "muted"))}
+      ${columnaFunnel("Armado de precio", n.armado, pctTxt(n.armado, n.heshOk) + " de hesh aprobado",
+        estadoFunnel("Aprobado", n.armadoOk, n.armado, "ok")
+        + estadoFunnel("En curso", n.armadoCurso, n.armado, "curso")
+        + estadoFunnel("Rechazado", n.armadoRecha, n.armado, "recha")
+        + estadoFunnel("Sin inicial", n.armadoSin, n.heshOk, "muted"))}
+      ${columnaFunnel("Aprobología", n.aprob, pctTxt(n.aprob, n.heshOk) + " de hesh aprobado",
+        estadoFunnel("Aprobado", n.aprobOk, n.heshOk, "ok")
+        + estadoFunnel("En curso", n.aprobCurso, n.heshOk, "curso")
+        + estadoFunnel("Rechazado", n.aprobRecha, n.heshOk, "recha")
+        + estadoFunnel("Sin crear", n.aprobSin, n.heshOk, "muted"))}
+    </div>
+    <p class="funnel-nota">El número grande es el total de la etapa. El porcentaje de cada estado es sobre ese total, salvo No inició, No creado, Sin actividad, Sin inicial y Sin crear, que se miden contra la etapa de la que salen. Desliza a la derecha para ver hesh, armado y aprobología.</p>`;
+}
+let relojFunnel = 0;
+let intentosFunnel = 0;
+function vigilarFunnel() {
+  if (window.TABLAS && window.TABLAS.funnel) return;
+  clearInterval(relojFunnel);
+  llamarServidor("prepararFunnel").then(prog => {
+    if (prog && prog.error) {
+      window.ERROR_FUNNEL = prog.error;
+      if (vistaId === "funnel") pintarFunnel();
+    }
+  }).catch(() => {});
+  relojFunnel = setInterval(async () => {
+    try {
+      const boot = await llamarServidor("getBootstrap");
+      if (!boot || !boot.funnel) {
+        if (boot && !boot.corriendo && intentosFunnel < 3) {
+          intentosFunnel++;
+          llamarServidor("prepararFunnel").catch(() => {});
+        }
+        return;
+      }
+      clearInterval(relojFunnel);
+      await traerFunnel();
+      if (!(window.TABLAS && window.TABLAS.funnel)) return;
+      instalarCatalogo("funnel", catalogoDe("funnel"));
+      if (vistaId === "funnel") pintarFunnel();
+    } catch (e) {}
+  }, 15000);
+}
+</script>

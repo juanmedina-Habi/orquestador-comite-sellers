@@ -17,8 +17,12 @@ function pintarPestanas() {
 function pintar() {
   mostrarFiltros();
   pintarPestanas();
-  pintarGrafica();
-  pintarDetalle();
+  if (vistaId === "funnel") pintarFunnel();
+  else {
+    document.getElementById("detalle").hidden = false;
+    pintarGrafica();
+    pintarDetalle();
+  }
 }
 function valoresCat(vista, dim) {
   const c = window.CATALOGOS || {};
@@ -70,6 +74,15 @@ function instalarCatalogo(vista, cat) {
     if (prevAgente) marcarLista("fa-agente", prevAgente);
     return;
   }
+  if (vista === "funnel") {
+    ["equipo", "propietario", "dueno"].forEach(dim => {
+      const id = "funnel-" + dim;
+      const prev = marcasActuales(id);
+      llenarLista(id, cat[dim] || []);
+      if (prev) marcarLista(id, prev);
+    });
+    return;
+  }
   if (vista === "documentos" || vista === "pricing" || vista === "remo") {
     const id = vista + "-agente";
     const prev = marcasActuales(id);
@@ -101,6 +114,11 @@ function repintarDatos() {
 }
 function pedirRecorte(soloDetalle) {
   if (!window.TABLAS || !window.TABLAS.sla) return;
+  if (vistaId === "funnel") {
+    pintarFunnel();
+    return;
+  }
+  document.getElementById("detalle").hidden = false;
   const pedido = pedidoActual();
   const recorte = calcularRecorte(pedido);
   if (!soloDetalle) {
@@ -137,7 +155,20 @@ async function traerTablas() {
     window.TABLAS[nombres[i]] = await abrirSnapshot(res.b64);
     if (res.actualizado) window.ACTUALIZADO_EN = res.actualizado;
   }
+  await traerFunnel();
   prepararTablas();
+}
+async function traerFunnel() {
+  try {
+    const res = await llamarServidor("getSnapshot", "funnel");
+    if (!res || res.error || !res.b64) {
+      window.TABLAS.funnel = null;
+      return;
+    }
+    window.TABLAS.funnel = await abrirSnapshot(res.b64);
+  } catch (e) {
+    window.TABLAS.funnel = null;
+  }
 }
 function instalarListas() {
   VISTAS.forEach(v => {
@@ -173,6 +204,7 @@ function vigilarArchivo(selloPrevio) {
       window.REFRESCANDO = false;
       pintarSello();
       pedirRecorte(false);
+      vigilarFunnel();
     } catch (e) {}
   }, 15000);
 }
@@ -186,6 +218,7 @@ async function mostrarArchivo(boot) {
     instalarListas();
     pintarSello();
     pedirRecorte(false);
+    vigilarFunnel();
     return;
   }
   if (window.ES_OWNER) {
@@ -235,6 +268,9 @@ document.addEventListener("click", e => {
   document.querySelectorAll(".desplegable[open]").forEach(el => {
     if (el !== dentro) el.open = false;
   });
+});
+document.querySelector(".filtros").addEventListener("input", e => {
+  if (e.target.id === "funnel-nid") programarRecorte(false);
 });
 document.querySelector(".filtros").addEventListener("change", e => {
   if (e.target.closest(".desplegable")) return;
