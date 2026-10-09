@@ -91,11 +91,18 @@ function pctTxt(parte, base) {
   if (!base) return "—";
   return nf1.format((100 * parte) / base) + "%";
 }
-function caja(nombre, valor, base, tono) {
-  return `<article class="caja ${tono || ""}"><span>${esc(nombre)}</span><strong>${nf.format(valor)}</strong><small>${pctTxt(valor, base)}</small></article>`;
-}
-function bloque(titulo, cajas) {
-  return `<section class="embudo-bloque"><h3>${esc(titulo)}</h3><div class="embudo-cajas">${cajas}</div></section>`;
+const ORIGEN_X = 320;
+const ORIGEN_Y = 5900;
+const ANCHO_FUNNEL = 99360;
+const ALTO_FUNNEL = 70221;
+function zona(x, y, w, h, nombre, valor, base, tono) {
+  const hueco = 0.28;
+  const izquierda = (x - ORIGEN_X) / ANCHO_FUNNEL * 100 + hueco;
+  const arriba = (y - ORIGEN_Y) / ALTO_FUNNEL * 100 + hueco;
+  const ancho = Math.max(w / ANCHO_FUNNEL * 100 - hueco * 2, 1.2);
+  const alto = Math.max(h / ALTO_FUNNEL * 100 - hueco * 2, 1.2);
+  const pct = tono === "total" ? "" : `<small>${pctTxt(valor, base)}</small>`;
+  return `<article class="caja-pos ${tono}" style="left:${izquierda}%;top:${arriba}%;width:${ancho}%;height:${alto}%"><span>${esc(nombre)}</span><strong>${nf.format(valor)}</strong>${pct}</article>`;
 }
 function pintarFunnel() {
   const v = VISTAS.find(x => x.id === "funnel");
@@ -115,70 +122,49 @@ function pintarFunnel() {
   const n = contarFunnel(pack.t, pack.idx);
   const pais = radio("funnel-pais");
   const donde = pais ? rotuloPais(pais) : "Todos los países";
+  const cajas = [
+    zona(320, 5900, 99360, 3614, "Cantidad de envíos a comité", n.envios, n.envios, "total"),
+    zona(320, 9514, 5240, 4910, "No recibido por orquestador", n.noLlego, n.envios, "muted"),
+    zona(5560, 9514, 94120, 4910, "Recibidos por el orquestador", n.llego, n.envios, "sigue"),
+    zona(5560, 14424, 4760, 4265, "Sin tarea rev. documentos", n.docNo, n.llego, "muted"),
+    zona(10320, 14424, 89360, 4265, "Revisión de documentos", n.doc, n.llego, "etapa"),
+    zona(10320, 18689, 5800, 3270, "Rechazado", n.docRecha, n.doc, "recha"),
+    zona(16120, 18689, 4440, 3269, "En proceso", n.docCurso, n.doc, "curso"),
+    zona(20560, 18689, 79120, 3284, "Aprobado", n.docOk, n.doc, "ok"),
+    zona(20560, 21973, 12520, 3587, "Revisión de remodelación", n.remo, n.docOk, "etapa"),
+    zona(33080, 21973, 60226, 3603, "Checks automáticos", n.checks, n.docOk, "etapa"),
+    zona(93306, 21973, 6374, 3603, "Sin tarea checks", n.checksNo, n.docOk, "muted"),
+    zona(20560, 25560, 3880, 12379, "Rechazado", n.remoRecha, n.remo, "recha"),
+    zona(24440, 25560, 4760, 12379, "En proceso", n.remoCurso, n.remo, "curso"),
+    zona(29200, 25560, 3880, 12379, "Aprobado", n.remoOk, n.remo, "ok"),
+    zona(33080, 25576, 54385, 5149, "Aprobado", n.checksOk, n.checks, "ok"),
+    zona(87465, 25576, 5841, 5149, "En proceso", n.checksCurso, n.checks, "curso"),
+    zona(33080, 30725, 47719, 3759, "Pricing", n.pricing, n.checksOk, "etapa"),
+    zona(80799, 30725, 6666, 3759, "Sin tarea pricing", n.pricingSin, n.checksOk, "muted"),
+    zona(33080, 34484, 38920, 3455, "Aprobado", n.pricingOk, n.pricing, "ok"),
+    zona(72000, 34484, 3880, 3455, "En proceso", n.pricingCurso, n.pricing, "curso"),
+    zona(75880, 34484, 4928, 3455, "Rechazado", n.pricingRecha, n.pricing, "recha"),
+    zona(29303, 37939, 42697, 4243, "Aprobado remodelación y pricing", n.finalizo, n.docOk, "ok"),
+    zona(29303, 42182, 6777, 4363, "Sin tarea hesh", n.heshNo, n.finalizo, "muted"),
+    zona(36080, 42182, 35920, 4363, "Hesh", n.hesh, n.finalizo, "etapa"),
+    zona(35978, 46545, 4640, 4303, "En proceso", n.heshCurso, n.hesh, "curso"),
+    zona(40618, 46545, 31382, 4303, "Aprobado", n.heshOk, n.hesh, "ok"),
+    zona(40618, 50848, 27248, 3940, "Armado de precio", n.armado, n.heshOk, "etapa"),
+    zona(67866, 50848, 4134, 3940, "Sin inicial", n.armadoSin, n.heshOk, "muted"),
+    zona(40618, 54788, 21422, 5030, "Aprobado", n.armadoOk, n.armado, "ok"),
+    zona(62040, 54788, 2520, 5030, "En curso", n.armadoCurso, n.armado, "curso"),
+    zona(64560, 54788, 3320, 5030, "Rechazado", n.armadoRecha, n.armado, "recha"),
+    zona(40618, 59818, 15771, 7273, "Aprobología", n.aprob, n.heshOk, "etapa"),
+    zona(56389, 59818, 5657, 7273, "Sin tarea aprobología", n.aprobSin, n.heshOk, "muted"),
+    zona(40618, 67091, 3811, 9030, "Rechazado", n.aprobRecha, n.heshOk, "recha"),
+    zona(44429, 67091, 6181, 9030, "En proceso", n.aprobCurso, n.heshOk, "curso"),
+    zona(50610, 67091, 5779, 9030, "Aprobado", n.aprobOk, n.heshOk, "ok"),
+  ];
   pagina.innerHTML = `
-    <div class="embudo-cabeza">
-      <div>
-        <p>Cantidad de envíos a comité</p>
-        <strong>${nf.format(n.envios)}</strong>
-      </div>
-      <p>${esc(donde)}</p>
+    <div class="marco-embudo" aria-label="Funnel ${esc(donde)}">
+      <div class="lienzo-embudo">${cajas.join("")}</div>
     </div>
-    <div class="embudo-cajas dos">
-      ${caja("No recibido por orquestador", n.noLlego, n.envios, "muted")}
-      ${caja("Recibidos por el orquestador", n.llego, n.envios, "sigue")}
-    </div>
-    ${bloque("Documentos", [
-      caja("Sin tarea rev. documentos", n.docNo, n.llego, "muted"),
-      caja("Revisión de documentos", n.doc, n.llego, "etapa"),
-      caja("Rechazado", n.docRecha, n.doc, "recha"),
-      caja("En proceso", n.docCurso, n.doc, "curso"),
-      caja("Aprobado", n.docOk, n.doc, "ok"),
-    ].join(""))}
-    <div class="embudo-par">
-      ${bloque("Remodelación", [
-        caja("Revisión de remodelación", n.remo, n.docOk, "etapa"),
-        caja("Rechazado", n.remoRecha, n.remo, "recha"),
-        caja("En proceso", n.remoCurso, n.remo, "curso"),
-        caja("Aprobado", n.remoOk, n.remo, "ok"),
-      ].join(""))}
-      <div>
-        ${bloque("Checks", [
-          caja("Checks automáticos", n.checks, n.docOk, "etapa"),
-          caja("Aprobado", n.checksOk, n.checks, "ok"),
-          caja("En proceso", n.checksCurso, n.checks, "curso"),
-          caja("Sin tarea checks", n.checksNo, n.docOk, "muted"),
-        ].join(""))}
-        ${bloque("Pricing", [
-          caja("Pricing", n.pricing, n.checksOk, "etapa"),
-          caja("Aprobado", n.pricingOk, n.pricing, "ok"),
-          caja("En proceso", n.pricingCurso, n.pricing, "curso"),
-          caja("Rechazado", n.pricingRecha, n.pricing, "recha"),
-          caja("Sin tarea pricing", n.pricingSin, n.checksOk, "muted"),
-        ].join(""))}
-      </div>
-    </div>
-    ${bloque("Siguen las dos", caja("Aprobado remodelación y pricing", n.finalizo, n.docOk, "ok"))}
-    ${bloque("Hesh", [
-      caja("Hesh", n.hesh, n.finalizo, "etapa"),
-      caja("En proceso", n.heshCurso, n.hesh, "curso"),
-      caja("Aprobado", n.heshOk, n.hesh, "ok"),
-      caja("Sin tarea hesh", n.heshNo, n.finalizo, "muted"),
-    ].join(""))}
-    ${bloque("Armado de precio", [
-      caja("Armado de precio", n.armado, n.heshOk, "etapa"),
-      caja("Aprobado", n.armadoOk, n.armado, "ok"),
-      caja("En curso", n.armadoCurso, n.armado, "curso"),
-      caja("Rechazado", n.armadoRecha, n.armado, "recha"),
-      caja("Sin inicial", n.armadoSin, n.heshOk, "muted"),
-    ].join(""))}
-    ${bloque("Aprobología", [
-      caja("Aprobología", n.aprob, n.heshOk, "etapa"),
-      caja("Sin tarea aprobología", n.aprobSin, n.heshOk, "muted"),
-      caja("Rechazado", n.aprobRecha, n.heshOk, "recha"),
-      caja("En proceso", n.aprobCurso, n.heshOk, "curso"),
-      caja("Aprobado", n.aprobOk, n.heshOk, "ok"),
-    ].join(""))}
-    <p class="embudo-nota">Son las 36 cajas del funnel. La verde es la etapa o quien aprobó. La gris es quien no tiene tarea. La ámbar sigue en proceso y la roja fue rechazada. Si una da cero, igual se muestra.</p>`;
+    <p class="embudo-nota">Misma ubicación que el funnel de Tableau. El camino se corre a la derecha y a los lados quedan rechazado, en proceso y sin tarea. ${esc(donde)}.</p>`;
 }
 let relojFunnel = 0;
 let intentosFunnel = 0;
