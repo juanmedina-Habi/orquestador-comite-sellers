@@ -170,12 +170,88 @@ function pintarFunnel() {
     <div class="marco-embudo" aria-label="Funnel ${esc(donde)}">
       <div class="lienzo-embudo">${cajas.join("")}</div>
     </div>
-    <p class="embudo-nota">Pasa el cursor por una caja para ver el nombre, el número y el porcentaje. ${esc(donde)}.</p>`;
+    <p class="embudo-nota">Pasa el cursor por una caja para ver el nombre, el número y el porcentaje. ${esc(donde)}.</p>
+    <section class="tabla-funnel">
+      <div class="detalle-cab">
+        <div>
+          <h2>Tabla de detalle</h2>
+          <p>Los nid de este embudo, con la fecha de cada etapa. La más reciente primero.</p>
+        </div>
+      </div>
+      <div class="detalle-bar">
+        <span id="fun-cuenta"></span>
+        <span class="detalle-nav">
+          <button type="button" class="btn-limpiar" id="fun-prev">Anterior</button>
+          <button type="button" class="btn-limpiar" id="fun-next">Siguiente</button>
+        </span>
+      </div>
+      <div class="detalle-marco">
+        <table>
+          <thead><tr>
+            <th>País</th><th>Nid</th><th>Envío</th><th>Documentos</th><th>Remo</th><th>Checks</th><th>Pricing</th><th>Hesh</th><th>Aprobología</th><th>Fin orquestador</th><th>Respuesta</th>
+          </tr></thead>
+          <tbody id="fun-cuerpo"></tbody>
+        </table>
+      </div>
+    </section>`;
+  pintarTablaFunnel();
+  const prev = document.getElementById("fun-prev");
+  const next = document.getElementById("fun-next");
+  if (prev) prev.addEventListener("click", () => moverPaginaFunnel(-1));
+  if (next) next.addEventListener("click", () => moverPaginaFunnel(1));
+}
+function moverPaginaFunnel(delta) {
+  busqueda.funnel.pagina = Math.max(0, (busqueda.funnel.pagina || 0) + delta);
+  pintarTablaFunnel();
+}
+function pintarTablaFunnel() {
+  const cuerpo = document.getElementById("fun-cuerpo");
+  const cuenta = document.getElementById("fun-cuenta");
+  if (!cuerpo) return;
+  const pack = filasFunnel();
+  if (!pack || !(pack.t.cols && pack.t.cols.fecha_doc)) {
+    cuerpo.innerHTML = `<tr><td colspan="11">La tabla se está actualizando con las fechas de cada etapa. El embudo de arriba sigue disponible.</td></tr>`;
+    if (cuenta) cuenta.textContent = "";
+    return;
+  }
+  const c = pack.t.cols;
+  const orden = pack.idx.slice().sort((a, b) => {
+    if (c.envio[a] !== c.envio[b]) return c.envio[a] < c.envio[b] ? 1 : -1;
+    if (c.nid[a] !== c.nid[b]) return c.nid[a] < c.nid[b] ? 1 : -1;
+    return 0;
+  });
+  const total = orden.length;
+  const ultima = Math.max(0, Math.ceil(total / TAM) - 1);
+  if ((busqueda.funnel.pagina || 0) > ultima) busqueda.funnel.pagina = ultima;
+  const pagina = busqueda.funnel.pagina || 0;
+  const corte = orden.slice(pagina * TAM, pagina * TAM + TAM);
+  cuerpo.innerHTML = corte.map(i => `<tr>
+    <td>${esc(rotuloPais(c.pais[i]))}</td>
+    <td class="num">${esc(c.nid[i])}</td>
+    <td class="num">${esc(fechaCorta(c.envio[i]))}</td>
+    <td class="num">${esc(fechaCorta(c.fecha_doc[i]))}</td>
+    <td class="num">${esc(fechaCorta(c.fecha_remo[i]))}</td>
+    <td class="num">${esc(fechaCorta(c.fecha_checks[i]))}</td>
+    <td class="num">${esc(fechaCorta(c.fecha_pricing[i]))}</td>
+    <td class="num">${esc(fechaCorta(c.fecha_hesh[i]))}</td>
+    <td class="num">${esc(fechaCorta(c.fecha_aprob[i]))}</td>
+    <td class="num">${esc(fechaCorta(c.fin[i]))}</td>
+    <td class="num">${esc(fechaCorta(c.fecha_respuesta[i]))}</td>
+  </tr>`).join("") || `<tr><td colspan="11">No hay nid con estos filtros.</td></tr>`;
+  if (cuenta) cuenta.textContent = total ? `${nf.format(pagina * TAM + 1)}–${nf.format(Math.min(total, (pagina + 1) * TAM))} de ${nf.format(total)}` : "0 nid";
+  const prev = document.getElementById("fun-prev");
+  const next = document.getElementById("fun-next");
+  if (prev) prev.disabled = pagina <= 0;
+  if (next) next.disabled = pagina >= ultima;
+}
+function funnelActual() {
+  const t = window.TABLAS && window.TABLAS.funnel;
+  return !!(t && t.cols && t.cols.fecha_doc);
 }
 let relojFunnel = 0;
 let intentosFunnel = 0;
 function vigilarFunnel() {
-  if (window.TABLAS && window.TABLAS.funnel) return;
+  if (funnelActual()) return;
   clearInterval(relojFunnel);
   llamarServidor("prepararFunnel").then(prog => {
     if (prog && prog.error) {

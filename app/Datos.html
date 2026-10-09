@@ -32,7 +32,7 @@ function decodificar(raw) {
     }
     const partes = String(v == null ? "" : v).split(",");
     const arr = new Array(n);
-    const esFecha = k === "envio" || k === "inicio" || k === "fin";
+    const esFecha = k === "envio" || k === "inicio" || k === "fin" || k.indexOf("fecha_") === 0;
     for (let r = 0; r < n; r++) {
       const celda = partes[r] == null ? "" : partes[r];
       if (celda === "") arr[r] = esFecha ? "" : null;

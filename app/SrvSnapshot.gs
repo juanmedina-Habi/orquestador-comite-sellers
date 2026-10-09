@@ -266,7 +266,7 @@ function especificaciones_() {
     { nombre: 'sla', sql: sqlSla_(), string: ['nid', 'pais', 'propietario', 'equipo', 'dueno', 'respuesta', 'reintentos', 'etapa'], fecha: ['envio', 'fin'], numero: ['horas'] },
     { nombre: 'micro', sql: sqlMicro_(), string: ['vista', 'nid', 'pais', 'comite', 'agente', 'propietario', 'estado', 'tipo'], fecha: ['envio', 'inicio', 'fin'], numero: ['horas'] },
     { nombre: 'inmo', sql: sqlInmo_(), string: ['nid', 'pais', 'etapa', 'automatizacion'], fecha: ['envio', 'fin'], numero: ['horas'] },
-    { nombre: 'funnel', sql: sqlFunnel_(), string: ['nid', 'pais', 'equipo', 'propietario', 'dueno'], fecha: ['envio'], numero: BITS_FUNNEL },
+    { nombre: 'funnel', version: 2, sql: sqlFunnel_(), string: ['nid', 'pais', 'equipo', 'propietario', 'dueno'], fecha: ['envio', 'fecha_doc', 'fecha_remo', 'fecha_checks', 'fecha_pricing', 'fecha_hesh', 'fecha_aprob', 'fin', 'fecha_respuesta'], numero: BITS_FUNNEL },
   ];
 }
 
@@ -346,7 +346,7 @@ function sqlMicro_() {
 function funnelListo_() {
   var meta = leerMeta_();
   var info = (meta.tablas && meta.tablas.funnel) || {};
-  return !!(info.fileId && !info.error);
+  return !!(info.fileId && !info.error && Number(info.version) >= 2);
 }
 
 function prepararFunnel() {
@@ -383,7 +383,7 @@ function refreshFunnel() {
     var viejo = tablas.funnel && tablas.funnel.fileId;
     var info = guardarTabla_(spec);
     tablas.funnel = info;
-    publicarMeta_(meta.actualizado || selloBogota(), tablas, meta.errores || []);
+    publicarMeta_(selloBogota(), tablas, meta.errores || []);
     if (viejo && viejo !== info.fileId) {
       try { DriveApp.getFileById(viejo).setTrashed(true); } catch (e2) {}
     }
@@ -418,6 +418,14 @@ function sqlFunnel_() {
     '  CAST(nid AS STRING) AS nid,',
     '  IFNULL(pais_hubspot, "") AS pais,',
     '  FORMAT_DATE("%F", DATE(fecha_envio_seller)) AS envio,',
+    '  FORMAT_DATE("%F", DATE(respuesta_doc_pais)) AS fecha_doc,',
+    '  FORMAT_DATE("%F", DATE(respuesta_remo_pais)) AS fecha_remo,',
+    '  FORMAT_DATE("%F", DATE(respuesta_checks_pais)) AS fecha_checks,',
+    '  FORMAT_DATE("%F", DATE(respuesta_pricing_pais)) AS fecha_pricing,',
+    '  FORMAT_DATE("%F", DATE(respuesta_hesh_pais)) AS fecha_hesh,',
+    '  FORMAT_DATE("%F", DATE(respuesta_aprobologia_pais)) AS fecha_aprob,',
+    '  FORMAT_DATE("%F", DATE(fin_comite_pais)) AS fin,',
+    '  FORMAT_DATE("%F", DATE(fecha_respuesta)) AS fecha_respuesta,',
     '  IFNULL(equipo_sellers, "") AS equipo,',
     '  IFNULL(propietario_de_aprobacion_final, "") AS propietario,',
     '  IFNULL(propietario_del_negocio, "") AS dueno,',
@@ -500,7 +508,7 @@ function guardarTabla_(spec) {
   var bytes = Utilities.gzip(Utilities.newBlob(json, 'application/json', spec.nombre + '.json')).getBytes();
   if (bytes.length > TOPE_GZIP) throw new Error('El archivo pesa más de 20 MB. Hay que partir la tabla.');
   var archivo = asegurarCarpeta_().createFile(Utilities.newBlob(bytes, 'application/gzip', spec.nombre + '.json.gz'));
-  return { filas: encoder.n, bytes: bytes.length, fileId: archivo.getId(), error: '' };
+  return { filas: encoder.n, bytes: bytes.length, fileId: archivo.getId(), version: spec.version || 1, error: '' };
 }
 
 function cadaFila_(ref, fn) {
