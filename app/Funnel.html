@@ -425,67 +425,67 @@ function pintarDesglose() {
     if (g) conteo[g]++;
     else fuera++;
   });
-  const total = pack.idx.length;
   const mayor = Math.max(conteo.llego, conteo.curso, conteo.revision, 1);
   const elegido = busqueda.funnel.grupo || "";
-  const barras = GRUPOS_ENVIO.map(g => {
+  const altoMax = 190;
+  const columnas = GRUPOS_ENVIO.map(g => {
     const n = conteo[g.id];
     const listo = g.id === "llego" || clasificado;
-    const ancho = listo ? Math.max(2, Math.round(100 * n / mayor)) : 0;
+    const alto = listo ? Math.max(8, Math.round(altoMax * n / mayor)) : 8;
     const activo = elegido === g.id ? " activa" : "";
-    return `<button type="button" class="barra-desglose ${g.id}${activo}" data-grupo="${g.id}"${listo ? "" : " disabled"}>
-      <b>${esc(g.nombre)}</b>
-      <span class="barra-pista"><i style="width:${ancho}%"></i></span>
+    return `<button type="button" class="columna-envio ${g.id}${activo}" data-grupo="${g.id}"${listo ? "" : " disabled"}>
       <strong>${listo ? nf.format(n) : "…"}</strong>
-      <small>${listo ? pctTxt(n, total) : ""}</small>
+      <span class="columna-barra" style="height:${alto}px"></span>
+      <b>${esc(g.nombre)}</b>
     </button>`;
   }).join("");
-  const aviso = clasificado ? "" : `<p class="desglose-nota">Sin llegar al orquestador: ${nf.format(fuera)}. El corte entre comité en curso y en revisión se completa en un momento.</p>`;
-  let lista = "";
-  if (elegido && (elegido === "llego" || clasificado)) {
-    const nombre = (GRUPOS_ENVIO.find(g => g.id === elegido) || {}).nombre || "";
-    const filas = pack.idx.filter(i => grupoEnvio(c, i) === elegido).sort((a, b) => {
-      if (c.envio[a] !== c.envio[b]) return c.envio[a] < c.envio[b] ? 1 : -1;
-      if (c.nid[a] !== c.nid[b]) return c.nid[a] < c.nid[b] ? 1 : -1;
-      return 0;
-    });
-    const paso = 15;
-    const ultima = Math.max(0, Math.ceil(filas.length / paso) - 1);
-    let pagina = busqueda.funnel.paginaGrupo || 0;
-    if (pagina > ultima) pagina = ultima;
-    busqueda.funnel.paginaGrupo = pagina;
-    const corte = filas.slice(pagina * paso, pagina * paso + paso);
-    const cuenta = filas.length ? `${nf.format(pagina * paso + 1)}–${nf.format(Math.min(filas.length, (pagina + 1) * paso))} de ${nf.format(filas.length)}` : "0 nid";
-    lista = `<div class="desglose-lista">
-      <div class="detalle-bar"><span>${esc(nombre)}. ${cuenta}. Vuelve a pulsar la barra para cerrar la lista.</span>
-        <span class="detalle-nav">
-          <button type="button" class="btn-limpiar" id="desg-prev"${pagina <= 0 ? " disabled" : ""}>Anterior</button>
-          <button type="button" class="btn-limpiar" id="desg-next"${pagina >= ultima ? " disabled" : ""}>Siguiente</button>
-        </span>
-      </div>
-      <div class="detalle-marco">
-        <table>
-          <thead><tr><th>Fecha de envío</th><th>Nid</th><th>País</th><th>Categoría</th></tr></thead>
-          <tbody>${corte.map(i => `<tr>
-            <td class="num">${esc(fechaCorta(c.envio[i]))}</td>
-            <td class="num">${esc(c.nid[i])}</td>
-            <td>${esc(rotuloPais(c.pais[i]))}</td>
-            <td>${esc(nombre)}</td>
-          </tr>`).join("") || `<tr><td colspan="4">No hay nid en este grupo.</td></tr>`}</tbody>
-        </table>
-      </div>
-    </div>`;
-  }
+  const aviso = clasificado ? "" : `<p class="desglose-nota">Comité en curso y en revisión se están completando. Sin llegar al orquestador: ${nf.format(fuera)}.</p>`;
+  const nombreGrupo = id => (GRUPOS_ENVIO.find(g => g.id === id) || {}).nombre || "";
+  const filas = pack.idx.filter(i => !elegido || grupoEnvio(c, i) === elegido).sort((a, b) => {
+    if (c.envio[a] !== c.envio[b]) return c.envio[a] < c.envio[b] ? -1 : 1;
+    if (c.nid[a] !== c.nid[b]) return c.nid[a] < c.nid[b] ? -1 : 1;
+    return 0;
+  });
+  const paso = 15;
+  const ultima = Math.max(0, Math.ceil(filas.length / paso) - 1);
+  let pagina = busqueda.funnel.paginaGrupo || 0;
+  if (pagina > ultima) pagina = ultima;
+  busqueda.funnel.paginaGrupo = pagina;
+  const corte = filas.slice(pagina * paso, pagina * paso + paso);
+  const cuenta = filas.length ? `${nf.format(pagina * paso + 1)}–${nf.format(Math.min(filas.length, (pagina + 1) * paso))} de ${nf.format(filas.length)}` : "0 nid";
+  const filasHtml = corte.map(i => {
+    const g = grupoEnvio(c, i);
+    const nombre = g ? nombreGrupo(g) : "Sin llegar";
+    return `<tr>
+      <td class="num">${esc(fechaHora(c.envio[i], c.hora_envio ? c.hora_envio[i] : ""))}</td>
+      <td class="num">${esc(c.nid[i])}</td>
+      <td>${esc(rotuloPais(c.pais[i]))}</td>
+      <td>${esc(nombre)}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="4">No hay nid en este grupo.</td></tr>`;
   root.innerHTML = `
     <div class="detalle-cab">
       <div>
         <h2>Desglose de envíos</h2>
-        <p>Los envíos de este embudo, con las tres categorías de Tableau. Sigue los filtros de arriba.</p>
+        <p>Pulsa una columna para ver solo ese grupo. Sigue los filtros de arriba.</p>
       </div>
     </div>
-    <div class="barras-desglose">${barras}</div>
+    <div class="grafica-desglose">${columnas}</div>
     ${aviso}
-    ${lista}`;
+    <h3 class="desglose-titulo-detalle">Detalle</h3>
+    <div class="detalle-bar">
+      <span>${cuenta}</span>
+      <span class="detalle-nav">
+        <button type="button" class="btn-limpiar" id="desg-prev"${pagina <= 0 ? " disabled" : ""}>Anterior</button>
+        <button type="button" class="btn-limpiar" id="desg-next"${pagina >= ultima ? " disabled" : ""}>Siguiente</button>
+      </span>
+    </div>
+    <div class="detalle-marco">
+      <table>
+        <thead><tr><th>Fecha de envío</th><th>Nid</th><th>País</th><th>Desglose</th></tr></thead>
+        <tbody>${filasHtml}</tbody>
+      </table>
+    </div>`;
 }
 function moverGrupo(delta) {
   busqueda.funnel.paginaGrupo = Math.max(0, (busqueda.funnel.paginaGrupo || 0) + delta);
@@ -515,10 +515,7 @@ function vigilarFunnel() {
     try {
       const boot = await llamarServidor("getBootstrap");
       if (!boot || !boot.funnel) {
-        if (boot && !boot.corriendo && intentosFunnel < 3) {
-          intentosFunnel++;
-          llamarServidor("prepararFunnel").catch(() => {});
-        }
+        llamarServidor("prepararFunnel").catch(() => {});
         return;
       }
       clearInterval(relojFunnel);

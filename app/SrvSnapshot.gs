@@ -350,18 +350,24 @@ function funnelListo_() {
   return !!(info.fileId && !info.error && Number(info.version) >= 4);
 }
 
+function funnelEnCurso_() {
+  var desde = Number(PropertiesService.getScriptProperties().getProperty('FUNNEL_DESDE') || '0');
+  return !!desde && (Date.now() - desde) < 8 * 60 * 1000;
+}
+
 function prepararFunnel() {
   assertAllowed_();
   if (funnelListo_()) return { listo: true };
   if (!isOwner_()) return { listo: false };
-  if (refreshEnCurso_()) return { listo: false, corriendo: true };
-  var triggers = ScriptApp.getProjectTriggers();
-  for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'refreshFunnel') return { listo: false, corriendo: true };
-  }
+  if (funnelEnCurso_()) return { listo: false, corriendo: true };
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'refreshFunnel') ScriptApp.deleteTrigger(t);
+  });
   try {
+    PropertiesService.getScriptProperties().setProperty('FUNNEL_DESDE', String(Date.now()));
     ScriptApp.newTrigger('refreshFunnel').timeBased().after(60 * 1000).create();
   } catch (e) {
+    PropertiesService.getScriptProperties().deleteProperty('FUNNEL_DESDE');
     return { error: 'No se pudo dejar la lectura del funnel en segundo plano.' };
   }
   return { listo: false, corriendo: true };
@@ -369,10 +375,12 @@ function prepararFunnel() {
 
 function refreshFunnel() {
   var lock = null;
+  var props = PropertiesService.getScriptProperties();
   try {
     if (!puedeRefrescar_()) return;
+    props.setProperty('FUNNEL_DESDE', String(Date.now()));
     lock = LockService.getScriptLock();
-    if (!lock.tryLock(10000)) return;
+    if (!lock.tryLock(30000)) return;
     var spec = null;
     especificaciones_().forEach(function (s) { if (s.nombre === 'funnel') spec = s; });
     spec.ref = lanzarConsulta_(spec.sql);
@@ -394,6 +402,7 @@ function refreshFunnel() {
     tablasError.funnel = Object.assign({}, tablasError.funnel, { error: e.message });
     publicarMeta_(metaError.actualizado || selloBogota(), tablasError, metaError.errores || []);
   } finally {
+    props.deleteProperty('FUNNEL_DESDE');
     if (lock) { try { lock.releaseLock(); } catch (e3) {} }
     ScriptApp.getProjectTriggers().forEach(function (t) {
       if (t.getHandlerFunction() === 'refreshFunnel') ScriptApp.deleteTrigger(t);
