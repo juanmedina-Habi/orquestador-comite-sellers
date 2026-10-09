@@ -153,7 +153,25 @@ function armarPaneles() {
     <label class="filtro"><span>Nid</span><input id="funnel-nid" type="search" inputmode="numeric" placeholder="Buscar nid"></label>
     <p class="nota-filtro"><b>Nota.</b> Abre del 1 de junio de 2025 a hoy, como el funnel de Tableau. Cada caja es una hoja de ese tablero.</p>
   </div>`;
-  document.getElementById("paneles").innerHTML = funnel +
+  const simple = (id, nota) => `<div class="filtros-aprobologia panel-filtro" data-vista="${id}" hidden>
+    <fieldset class="filtro"><legend>País</legend>${radios(id + "-pais", pais)}</fieldset>
+    ${rango(id + "-envio", "Fecha de Envío Seller", "Vacío deja todas las fechas.")}
+    <p class="nota-filtro">${nota}</p>
+  </div>`;
+  const rechazo = `<div class="filtros-aprobologia panel-filtro" data-vista="rechazo" hidden>
+    <fieldset class="filtro"><legend>País</legend>${radios("rechazo-pais", pais)}</fieldset>
+    <p class="nota-filtro">El volumen y la tasa salen por mes. Pulsa un mes para ver las razones.</p>
+  </div>`;
+  document.getElementById("paneles").innerHTML = funnel
+    + simple("incons", "Sí cuando el estado de Hubspot no coincide con el del orquestador.")
+    + simple("curso", "La fase sale de las mismas banderas del embudo.")
+    + `<div class="filtros-aprobologia panel-filtro" data-vista="actividad" hidden>
+    <fieldset class="filtro"><legend>País</legend>${radios("actividad-pais", pais)}</fieldset>
+    ${rango("actividad-envio", "Fecha de inicio", "Día en que empezó la revisión de remodelación.")}
+    <p class="nota-filtro">El promedio por día de la semana y la mediana por hora salen de las revisiones de remodelación con documentos aprobados.</p>
+  </div>`
+    + simple("inmo_tablero", "Abre en México. Cubre el funnel, la fase y la conversión de inmobiliaria.")
+    + rechazo +
     micro("documentos", "Cumplimiento Revisión Documentos", "Fecha de inicio: fecha de envío seller. Fecha de fin: fecha de aprobación o rechazo de la revisión de documentos.", "Fecha de envío seller.", "Aprobación o rechazo de la revisión de documentos. La barra usa esta fecha.")
     + micro("pricing", "Cumplimiento Pricing", "Fecha de inicio: fecha de aprobación de checks automáticos. Fecha de fin: fecha de aprobación o rechazo de Pricing, manual o automático.", "Aprobación de los checks automáticos.", "Aprobación o rechazo de Pricing. La barra usa esta fecha.")
     + micro("remo", "Cumplimiento Remo", "Fecha de inicio: fecha de aprobación de revisión de documentos. Fecha de fin: fecha de aprobación o rechazo de remodelación.", "Aprobación de la revisión de documentos.", "Aprobación o rechazo de remodelación. La barra usa esta fecha.")
@@ -229,6 +247,11 @@ function aplicarPredeterminados() {
   poner("funnel-nid", "");
   poner("funnel-envio-desde", "2025-06-01");
   poner("funnel-envio-hasta", hoy);
+  ["incons", "curso", "actividad"].forEach(id => {
+    poner(id + "-envio-desde", "2025-06-01");
+    poner(id + "-envio-hasta", hoy);
+  });
+  marcarRadio("inmo_tablero-pais", "Mexico");
   if (typeof resetDetalle === "function") resetDetalle();
 }
 function listaProvisional(id) {

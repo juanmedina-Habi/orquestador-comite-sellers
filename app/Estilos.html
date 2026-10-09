@@ -278,6 +278,31 @@
   .caja-pos.muted strong { color: #3f3f46; }
   .si { color: #047857; font-weight: 650; }
   .no { color: #BE185D; font-weight: 650; }
+  .resto-chips, .resto-kpis { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
+  .resto-chips button, .resto-kpi {
+    border: 1px solid var(--linea); background: #fff; border-radius: 8px; font: inherit; color: inherit; cursor: pointer;
+  }
+  .resto-chips button { padding: 6px 12px; }
+  .resto-chips button.activa, .resto-kpi.activa { border-color: #7E22CE; background: #F5F3FF; }
+  .resto-kpi { padding: 10px 14px; min-width: 148px; text-align: left; }
+  .resto-kpi b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .resto-kpi span { color: var(--suave); font-size: 12px; }
+  .resto-bloque { margin: 0 0 8px; font-weight: 650; }
+  .resto-barras { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 18px; }
+  .resto-fila {
+    display: grid; grid-template-columns: minmax(120px, 220px) 1fr 88px; gap: 8px; align-items: center;
+    background: none; border: 0; padding: 2px 0; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  }
+  .resto-fila .pista { height: 18px; background: #F4F4F5; border-radius: 4px; overflow: hidden; }
+  .resto-fila .relleno { display: block; height: 100%; background: #7B4DFF; border-radius: 4px; }
+  .resto-fila.activa .relleno { background: #5B21B6; }
+  .resto-fila b { font-variant-numeric: tabular-nums; text-align: right; }
+  .resto-tabla { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .resto-tabla th, .resto-tabla td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--linea); white-space: nowrap; }
+  .resto-tabla th { color: var(--suave); font-weight: 600; position: sticky; top: 0; background: #fff; }
+  .resto-pag { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+  .resto-pag button { font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--linea); background: #fff; cursor: pointer; }
+  .resto-pag button:disabled { opacity: .45; cursor: default; }
   @media (max-width: 900px) {
     .filtros-rejilla, .filtros-aprobologia, .encabezado, .embudo-abre, .embudo-par { grid-template-columns: 1fr !important; }
     .encabezado { flex-direction: column; }

@@ -1,0 +1,507 @@
+<script>
+/* El resto del tablero de Tableau: inconsistencias, fase, actividad de remo, rechazo e Inmo. */
+const RESTO_IDS = ["incons", "curso", "actividad", "rechazo", "inmo_tablero"];
+const RESTO_ARCHIVOS = ["incons", "actividad", "rechazo", "inmo_full"];
+const AREAS_INCONS = [
+  { id: "documentos", nombre: "Documentos" },
+  { id: "pricing", nombre: "Pricing" },
+  { id: "remo", nombre: "Remo" },
+  { id: "hesh", nombre: "Hesh" },
+  { id: "aprobologia", nombre: "Aprobología" },
+  { id: "oportunidad", nombre: "Oportunidad" },
+];
+const DIAS_SEMANA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+function esResto() {
+  return RESTO_IDS.indexOf(vistaId) >= 0;
+}
+function grupoEstado(v, vacio) {
+  if (!v) return vacio;
+  if (v === "COMPLETED") return "Aprobado";
+  if (v === "IN_PROGRESS") return "En progreso";
+  if (v === "REJECTED") return "Rechazado";
+  return v;
+}
+function distintoCrudo(a, b) {
+  if (!a || !b) return true;
+  return a !== b;
+}
+function incArea(area, c, i) {
+  const hub = c["hub_" + (area === "aprobologia" ? "aprob" : area)];
+  const orq = c["orq_" + (area === "aprobologia" ? "aprob" : area)];
+  if (area === "documentos") return grupoEstado(hub && hub[i], "No tiene respuesta") !== grupoEstado(orq && orq[i], "No tiene respuesta");
+  if (area === "pricing") return grupoEstado(hub && hub[i], "No hay respuesta") !== grupoEstado(orq && orq[i], "No hay respuesta");
+  if (area === "remo") return distintoCrudo(hub && hub[i], orq && orq[i]);
+  if (area === "hesh") {
+    const h = hub && hub[i];
+    const o = orq && orq[i];
+    if (!h && !o) return false;
+    if (!h || !o) return true;
+    return h !== o;
+  }
+  if (area === "aprobologia") {
+    const h = hub && hub[i];
+    const o = orq && orq[i];
+    if (!o) return false;
+    if (!h) return true;
+    return h !== o;
+  }
+  const general = c.general[i];
+  const oportunidad = c.oportunidad[i];
+  if (!general && !oportunidad) return true;
+  if (!oportunidad && general) return true;
+  if (!general || !oportunidad) return null;
+  return general !== oportunidad;
+}
+function textoEstado(v, vacio) {
+  return grupoEstado(v, vacio || "Sin respuesta");
+}
+function filasIncons() {
+  const t = window.TABLAS && window.TABLAS.incons;
+  if (!t) return null;
+  const f = filtros();
+  const area = busqueda.incons.area || "documentos";
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (f.pais && t.cols.pais[i] !== f.pais) continue;
+    if (!enRango(t.cols.envio[i], f.envioDesde, f.envioHasta)) continue;
+    idx.push(i);
+  }
+  return { t: t, idx: idx, area: area };
+}
+function faseDe(c, i) {
+  const u = k => c[k] && c[k][i] === "1";
+  if (u("aprob_ok")) return "Finalizó";
+  if (u("rev_hesh") && u("aprob_curso")) return "Aprobología";
+  if (u("rev_remo") && u("hesh_curso")) return "Hesh";
+  if (u("rev_remo") && u("pricing_curso")) return "Pricing";
+  if (u("rev_doc") && u("remo_curso")) return "Remo";
+  if (u("rev_doc") && u("doc_curso")) return "Documentos";
+  if (u("orq")) return "Entró al orquestador";
+  return "Sin fase";
+}
+function filasCurso() {
+  const t = window.TABLAS && window.TABLAS.funnel;
+  if (!t) return null;
+  const f = filtros();
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (f.pais && t.cols.pais[i] !== f.pais) continue;
+    if (!enRango(t.cols.envio[i], f.envioDesde, f.envioHasta)) continue;
+    idx.push(i);
+  }
+  return { t: t, idx: idx };
+}
+function filasActividad(grano) {
+  const t = window.TABLAS && window.TABLAS.actividad;
+  if (!t) return null;
+  const f = filtros();
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (t.cols.grano[i] !== grano) continue;
+    if (f.pais && t.cols.pais[i] !== f.pais) continue;
+    if (!enRango(t.cols.fecha[i], f.envioDesde, f.envioHasta)) continue;
+    idx.push(i);
+  }
+  return { t: t, idx: idx };
+}
+function filasRechazo() {
+  const t = window.TABLAS && window.TABLAS.rechazo;
+  if (!t) return null;
+  const f = filtros();
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (f.pais && t.cols.pais[i] !== f.pais) continue;
+    idx.push(i);
+  }
+  return { t: t, idx: idx };
+}
+function filasInmo() {
+  const t = window.TABLAS && window.TABLAS.inmo_full;
+  if (!t) return null;
+  const f = filtros();
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (f.pais && t.cols.pais[i] !== f.pais) continue;
+    if (!enRango(t.cols.envio[i], f.envioDesde, f.envioHasta)) continue;
+    idx.push(i);
+  }
+  return { t: t, idx: idx };
+}
+function activaResto(tipo, id) {
+  const bag = busqueda[vistaId];
+  if (vistaId === "rechazo" && tipo === "mes") return bag.mes === id;
+  if (vistaId === "rechazo" && tipo === "razon") return bag.razon === id;
+  return bag.focoTipo === tipo && bag.foco === id;
+}
+function barrasResto(items, tipo) {
+  const mayor = Math.max(1, ...items.map(x => x.n), 1);
+  if (!items.length) return `<p class="aviso-espera">No hay filas con estos filtros.</p>`;
+  return `<div class="resto-barras">${items.map(x => {
+    const activa = activaResto(tipo, x.id) ? " activa" : "";
+    const ancho = Math.max(2, Math.round(100 * x.n / mayor));
+    return `<button type="button" class="resto-fila${activa}" data-resto="${esc(tipo)}" data-valor="${esc(x.id)}"><span>${esc(x.nombre)}</span><span class="pista"><span class="relleno" style="width:${ancho}%"></span></span><b>${esc(x.texto || nf.format(x.n))}</b></button>`;
+  }).join("")}</div>`;
+}
+function tablaResto(columnas, filas) {
+  const tam = 15;
+  const bag = busqueda[vistaId];
+  const ultima = Math.max(0, Math.ceil(filas.length / tam) - 1);
+  const p = Math.min(bag.pagina || 0, ultima);
+  bag.pagina = p;
+  const corte = filas.slice(p * tam, p * tam + tam);
+  const head = columnas.map(c => `<th>${esc(c)}</th>`).join("");
+  const body = corte.map(row => `<tr>${row.map(celda => `<td>${celda}</td>`).join("")}</tr>`).join("");
+  const vacio = filas.length ? "" : `<tr><td colspan="${columnas.length}">Sin filas con estos filtros.</td></tr>`;
+  return `<div class="detalle-marco"><table class="resto-tabla"><thead><tr>${head}</tr></thead><tbody>${body || vacio}</tbody></table></div>
+    <div class="resto-pag"><button type="button" data-pagina="-1"${p <= 0 ? " disabled" : ""}>Anterior</button><span>${nf.format(filas.length)} filas · ${p + 1} / ${ultima + 1}</span><button type="button" data-pagina="1"${p >= ultima ? " disabled" : ""}>Siguiente</button></div>`;
+}
+function avisoResto(nombre) {
+  const err = (window.ERROR_RESTO && window.ERROR_RESTO[nombre]) || "";
+  if (err && err.indexOf("Todavía no está") < 0) return `<p class="aviso-espera">${esc(err)}</p>`;
+  return `<p class="aviso-espera">Esta sección se está preparando con la lectura del día. Vuelve a la pestaña en un minuto.</p>`;
+}
+function ocultarOtras() {
+  const detalle = document.getElementById("detalle");
+  if (detalle) detalle.hidden = true;
+  const desglose = document.getElementById("desglose");
+  if (desglose) desglose.hidden = true;
+}
+function tituloResto() {
+  const v = VISTAS.find(x => x.id === vistaId);
+  document.getElementById("titulo").textContent = v.nombre;
+  document.getElementById("subtitulo").textContent = v.nota;
+  ocultarOtras();
+}
+function pintarIncons() {
+  tituloResto();
+  const pack = filasIncons();
+  const pagina = document.getElementById("pagina");
+  if (!pack) { pagina.innerHTML = avisoResto("incons"); return; }
+  const area = pack.area;
+  const c = pack.t.cols;
+  const vacioHub = area === "documentos" ? "No tiene respuesta" : "No hay respuesta";
+  let si = 0;
+  let no = 0;
+  let curso = 0;
+  const filas = [];
+  pack.idx.forEach(i => {
+    const marca = incArea(area, c, i);
+    if (marca === null) curso++;
+    else if (marca) si++;
+    else no++;
+    const foco = busqueda.incons.foco;
+    if (foco === "Si" && marca !== true) return;
+    if (foco === "No" && marca !== false) return;
+    if (foco === "curso" && marca !== null) return;
+    const hubKey = area === "oportunidad" ? "oportunidad" : ("hub_" + (area === "aprobologia" ? "aprob" : area));
+    const orqKey = area === "oportunidad" ? "general" : ("orq_" + (area === "aprobologia" ? "aprob" : area));
+    const hubTxt = area === "documentos" || area === "pricing" ? grupoEstado(c[hubKey][i], vacioHub) : textoEstado(c[hubKey][i], area === "oportunidad" ? "Aún en curso" : "Sin respuesta");
+    const orqTxt = area === "documentos" || area === "pricing" ? grupoEstado(c[orqKey][i], vacioHub) : textoEstado(c[orqKey][i], area === "oportunidad" ? "Aún en curso" : "Sin respuesta");
+    const etiq = marca === null ? "Aún en curso" : (marca ? "Sí" : "No");
+    filas.push([
+      esc(fechaCorta(c.envio[i])),
+      esc(c.nid[i]),
+      esc(rotuloPais(c.pais[i])),
+      esc(c.equipo[i]),
+      esc(hubTxt),
+      esc(orqTxt),
+      `<span class="${marca ? "no" : "si"}">${etiq}</span>`,
+    ]);
+  });
+  const chips = AREAS_INCONS.map(a => `<button type="button" data-area="${a.id}" class="${a.id === area ? "activa" : ""}">${esc(a.nombre)}</button>`).join("");
+  const kpi = (id, n, texto) => `<button type="button" class="resto-kpi${busqueda.incons.foco === id ? " activa" : ""}" data-resto="marca" data-valor="${id}"><b>${nf.format(n)}</b><span>${texto}</span></button>`;
+  pagina.innerHTML = `<div class="resto-chips">${chips}</div>
+    <div class="resto-kpis">${kpi("Si", si, "No coinciden")}${kpi("No", no, "Coinciden")}${curso ? kpi("curso", curso, "Aún en curso") : ""}</div>
+    <p class="resto-bloque">Detalle</p>
+    ${tablaResto(["Fecha de envío", "Nid", "País", "Equipo", "Hubspot", "Orquestador", "Inconsistente"], filas)}`;
+}
+function pintarCurso() {
+  tituloResto();
+  const pack = filasCurso();
+  const pagina = document.getElementById("pagina");
+  if (!pack) { pagina.innerHTML = `<p class="aviso-espera">Negocios en curso usa el mismo archivo del embudo. Si acabas de abrir el tablero, vuelve en un minuto.</p>`; return; }
+  const c = pack.t.cols;
+  const cuentas = new Map();
+  const fases = [];
+  pack.idx.forEach(i => {
+    const fase = faseDe(c, i);
+    fases.push({ i: i, fase: fase });
+    cuentas.set(fase, (cuentas.get(fase) || 0) + 1);
+  });
+  const orden = ["Finalizó", "Aprobología", "Hesh", "Pricing", "Remo", "Documentos", "Entró al orquestador", "Sin fase"];
+  const items = orden.filter(id => cuentas.has(id)).map(id => ({ id: id, nombre: id, n: cuentas.get(id) }));
+  const foco = busqueda.curso.foco;
+  const filas = fases.filter(x => !foco || x.fase === foco).map(x => [
+    esc(fechaCorta(c.envio[x.i])),
+    esc(c.nid[x.i]),
+    esc(rotuloPais(c.pais[x.i])),
+    esc(x.fase),
+  ]);
+  pagina.innerHTML = `<p class="resto-bloque">Dónde están los negocios</p>${barrasResto(items, "fase")}
+    <p class="resto-bloque">Detalle</p>${tablaResto(["Fecha de envío", "Nid", "País", "Fase"], filas)}`;
+}
+function promedioTecho(nums) {
+  if (!nums.length) return 0;
+  return Math.ceil(nums.reduce((a, b) => a + b, 0) / nums.length);
+}
+function medianaTecho(nums) {
+  if (!nums.length) return 0;
+  const s = nums.slice().sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  const med = s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  return Math.ceil(med);
+}
+function pintarActividad() {
+  tituloResto();
+  const dias = filasActividad("dia");
+  const horas = filasActividad("hora");
+  const pagina = document.getElementById("pagina");
+  if (!dias || !horas) { pagina.innerHTML = avisoResto("actividad"); return; }
+  const c = dias.t.cols;
+  const porDia = new Map();
+  dias.idx.forEach(i => {
+    const clave = DIAS_SEMANA[new Date(c.fecha[i] + "T12:00:00").getDay()];
+    if (!porDia.has(clave)) porDia.set(clave, []);
+    porDia.get(clave).push(Number(c.n[i]) || 0);
+  });
+  const itemsDia = [1, 2, 3, 4, 5, 6, 0].filter(d => porDia.has(DIAS_SEMANA[d])).map(d => {
+    const nombre = DIAS_SEMANA[d];
+    const n = promedioTecho(porDia.get(nombre));
+    return { id: nombre, nombre: nombre, n: n, texto: nf.format(n) };
+  });
+  const h = horas.t.cols;
+  const porHora = new Map();
+  horas.idx.forEach(i => {
+    const hora = h.hora[i] || "0";
+    if (!porHora.has(hora)) porHora.set(hora, []);
+    porHora.get(hora).push(Number(h.n[i]) || 0);
+  });
+  const itemsHora = [...porHora.keys()].sort((a, b) => Number(a) - Number(b)).map(hora => {
+    const n = medianaTecho(porHora.get(hora));
+    const nombre = String(hora).padStart(2, "0") + ":00";
+    return { id: hora, nombre: nombre, n: n, texto: nf.format(n) };
+  });
+  const foco = busqueda.actividad.foco;
+  const tipo = busqueda.actividad.focoTipo;
+  const filas = [];
+  dias.idx.forEach(i => {
+    const dia = DIAS_SEMANA[new Date(c.fecha[i] + "T12:00:00").getDay()];
+    if (tipo === "dia" && foco && dia !== foco) return;
+    filas.push([esc(fechaCorta(c.fecha[i])), esc(dia), esc(rotuloPais(c.pais[i])), esc(nf.format(Number(c.n[i]) || 0))]);
+  });
+  pagina.innerHTML = `<p class="resto-bloque">Promedio por día de la semana</p>${barrasResto(itemsDia, "dia")}
+    <p class="resto-bloque">Mediana por hora</p>${barrasResto(itemsHora, "hora")}
+    <p class="resto-bloque">Detalle por día</p>${tablaResto(["Fecha", "Día", "País", "Negocios"], filas)}`;
+}
+function pintarRechazo() {
+  tituloResto();
+  const pack = filasRechazo();
+  const pagina = document.getElementById("pagina");
+  if (!pack) { pagina.innerHTML = avisoResto("rechazo"); return; }
+  const c = pack.t.cols;
+  const porMes = new Map();
+  pack.idx.forEach(i => {
+    const mes = c.mes[i] || "";
+    const prev = porMes.get(mes) || { n: 0, rechazos: 0 };
+    prev.n += Number(c.n[i]) || 0;
+    prev.rechazos += Number(c.rechazos[i]) || 0;
+    porMes.set(mes, prev);
+  });
+  const meses = [...porMes.keys()].filter(Boolean).sort();
+  const itemsMes = meses.map(mes => {
+    const v = porMes.get(mes);
+    const tasa = v.n ? (100 * v.rechazos / v.n) : 0;
+    return { id: mes, nombre: fechaCorta(mes).slice(3), n: v.n, texto: nf.format(v.n) + " · " + nf1.format(tasa) + "%" };
+  });
+  const mesFoco = busqueda.rechazo.mes || "";
+  const razonFoco = busqueda.rechazo.razon || "";
+  const porRazon = new Map();
+  const filas = [];
+  pack.idx.forEach(i => {
+    if (mesFoco && c.mes[i] !== mesFoco) return;
+    const razon = c.razon[i] || "(sin razón)";
+    const prev = porRazon.get(razon) || { n: 0, rechazos: 0 };
+    prev.n += Number(c.n[i]) || 0;
+    prev.rechazos += Number(c.rechazos[i]) || 0;
+    porRazon.set(razon, prev);
+    if (razonFoco && razon !== razonFoco) return;
+    const n = Number(c.n[i]) || 0;
+    const rec = Number(c.rechazos[i]) || 0;
+    filas.push([
+      esc(fechaCorta(c.mes[i])),
+      esc(rotuloPais(c.pais[i])),
+      esc(c.tipo[i]),
+      esc(razon),
+      esc(c.linea[i]),
+      esc(nf.format(n)),
+      esc(nf.format(rec)),
+      esc(n ? nf1.format(100 * rec / n) + "%" : "—"),
+    ]);
+  });
+  const itemsRazon = [...porRazon.entries()]
+    .map(([id, v]) => ({ id: id, nombre: id, n: v.rechazos, texto: nf.format(v.rechazos) }))
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 12);
+  pagina.innerHTML = `<p class="resto-bloque">Volumen y tasa por mes</p>${barrasResto(itemsMes, "mes")}
+    <p class="resto-bloque">Razones de descarte${mesFoco ? " · " + esc(fechaCorta(mesFoco).slice(3)) : ""}</p>${barrasResto(itemsRazon, "razon")}
+    <p class="resto-bloque">Detalle</p>${tablaResto(["Mes", "País", "Tipo", "Razón", "Línea", "Volumen", "Rechazos", "Tasa"], filas)}`;
+}
+function etapaInmo(v) {
+  if (v === "COMPLETED") return "Aprobado";
+  if (v === "IN_PROGRESS") return "En proceso";
+  if (v === "REJECTED") return "Rechazado";
+  return v || "Sin respuesta";
+}
+function pintarInmo() {
+  tituloResto();
+  const pack = filasInmo();
+  const pagina = document.getElementById("pagina");
+  if (!pack) { pagina.innerHTML = avisoResto("inmo_full"); return; }
+  const c = pack.t.cols;
+  let orq = 0;
+  const razones = new Map();
+  const estados = new Map();
+  const fases = new Map();
+  let coinciden = 0;
+  let noCoinciden = 0;
+  pack.idx.forEach(i => {
+    if (c.orq[i] === "Si") orq++;
+    razones.set(c.razon[i] || "Sin razón", (razones.get(c.razon[i] || "Sin razón") || 0) + 1);
+    estados.set(c.estado[i] || "Sin estado", (estados.get(c.estado[i] || "Sin estado") || 0) + 1);
+    const fase = c.fase[i] || "Sin fase";
+    fases.set(fase, (fases.get(fase) || 0) + 1);
+    if (c.hub[i] === etapaInmo(c.etapa[i])) coinciden++;
+    else noCoinciden++;
+  });
+  const total = pack.idx.length;
+  const cobertura = total ? nf1.format(100 * orq / total) + "%" : "—";
+  const aMapa = (map) => [...map.entries()].map(([id, n]) => ({ id: id, nombre: id, n: n })).sort((a, b) => b.n - a.n);
+  const focoTipo = busqueda.inmo_tablero.focoTipo;
+  const foco = busqueda.inmo_tablero.foco;
+  const filas = [];
+  pack.idx.forEach(i => {
+    const razon = c.razon[i] || "Sin razón";
+    const estado = c.estado[i] || "Sin estado";
+    const fase = c.fase[i] || "Sin fase";
+    if (focoTipo === "razon" && foco && razon !== foco) return;
+    if (focoTipo === "estado" && foco && estado !== foco) return;
+    if (focoTipo === "fase" && foco && fase !== foco) return;
+    const igual = c.hub[i] === etapaInmo(c.etapa[i]);
+    filas.push([
+      esc(fechaCorta(c.envio[i])),
+      esc(c.nid[i]),
+      esc(rotuloPais(c.pais[i])),
+      esc(c.orq[i]),
+      esc(razon),
+      esc(estado),
+      esc(fase),
+      esc(c.hub[i]),
+      esc(etapaInmo(c.etapa[i])),
+      `<span class="${igual ? "si" : "no"}">${igual ? "No" : "Sí"}</span>`,
+    ]);
+  });
+  pagina.innerHTML = `<div class="resto-kpis">
+      <div class="resto-kpi"><b>${nf.format(total)}</b><span>Envíos</span></div>
+      <div class="resto-kpi"><b>${nf.format(orq)}</b><span>En el orquestador</span></div>
+      <div class="resto-kpi"><b>${cobertura}</b><span>Cobertura</span></div>
+      <div class="resto-kpi"><b>${nf.format(noCoinciden)}</b><span>Inconsistencias Hubspot</span></div>
+      <div class="resto-kpi"><b>${nf.format(coinciden)}</b><span>Coinciden</span></div>
+    </div>
+    <p class="resto-bloque">Por qué no está en el orquestador</p>${barrasResto(aMapa(razones), "razon")}
+    <p class="resto-bloque">Estado del comité</p>${barrasResto(aMapa(estados), "estado")}
+    <p class="resto-bloque">Fase actual</p>${barrasResto(aMapa(fases).slice(0, 12), "fase")}
+    <p class="resto-bloque">Detalle</p>${tablaResto(["Fecha de envío", "Nid", "País", "Orquestador", "Razón", "Estado", "Fase", "Hubspot", "Respuesta", "Inconsistente"], filas)}`;
+}
+function pintarResto() {
+  if (vistaId === "incons") pintarIncons();
+  else if (vistaId === "curso") pintarCurso();
+  else if (vistaId === "actividad") pintarActividad();
+  else if (vistaId === "rechazo") pintarRechazo();
+  else if (vistaId === "inmo_tablero") pintarInmo();
+}
+function restoFalta() {
+  window.ERROR_RESTO = window.ERROR_RESTO || {};
+  return RESTO_ARCHIVOS.some(nombre => {
+    if (window.TABLAS && window.TABLAS[nombre]) return false;
+    const err = window.ERROR_RESTO[nombre] || "";
+    return !err || err.indexOf("Todavía no está") >= 0;
+  });
+}
+async function traerResto() {
+  window.ERROR_RESTO = window.ERROR_RESTO || {};
+  window.TABLAS = window.TABLAS || {};
+  await Promise.all(RESTO_ARCHIVOS.map(async nombre => {
+    if (window.TABLAS[nombre]) return;
+    try {
+      const res = await llamarServidor("getSnapshot", nombre);
+      if (!res || res.error || !res.b64) {
+        window.ERROR_RESTO[nombre] = (res && res.error) || "Todavía no está el archivo del día.";
+        return;
+      }
+      window.TABLAS[nombre] = await abrirSnapshot(res.b64);
+      window.ERROR_RESTO[nombre] = "";
+    } catch (e) {
+      window.ERROR_RESTO[nombre] = (e && e.message) || "No se pudo leer";
+    }
+  }));
+}
+let relojResto = 0;
+function vigilarResto() {
+  if (!restoFalta()) return;
+  clearInterval(relojResto);
+  llamarServidor("prepararResto").catch(() => {});
+  relojResto = setInterval(async () => {
+    try {
+      if (!restoFalta()) { clearInterval(relojResto); return; }
+      await llamarServidor("prepararResto");
+      await traerResto();
+      if (esResto()) pintarResto();
+    } catch (e) {}
+  }, 15000);
+}
+document.getElementById("pagina").addEventListener("click", e => {
+  if (!esResto()) return;
+  const pag = e.target.closest("[data-pagina]");
+  if (pag) {
+    if (pag.disabled) return;
+    busqueda[vistaId].pagina = (busqueda[vistaId].pagina || 0) + Number(pag.dataset.pagina);
+    pintarResto();
+    return;
+  }
+  const area = e.target.closest("[data-area]");
+  if (area) {
+    busqueda.incons.area = area.dataset.area;
+    busqueda.incons.foco = "";
+    busqueda.incons.focoTipo = "";
+    busqueda.incons.pagina = 0;
+    pintarResto();
+    return;
+  }
+  const b = e.target.closest("[data-resto]");
+  if (!b) return;
+  const bag = busqueda[vistaId];
+  const tipo = b.dataset.resto;
+  const valor = b.dataset.valor;
+  if (vistaId === "rechazo" && tipo === "mes") {
+    bag.mes = bag.mes === valor ? "" : valor;
+    bag.pagina = 0;
+    pintarResto();
+    return;
+  }
+  if (vistaId === "rechazo" && tipo === "razon") {
+    bag.razon = bag.razon === valor ? "" : valor;
+    bag.pagina = 0;
+    pintarResto();
+    return;
+  }
+  if (bag.focoTipo === tipo && bag.foco === valor) {
+    bag.foco = "";
+    bag.focoTipo = "";
+  } else {
+    bag.foco = valor;
+    bag.focoTipo = tipo;
+  }
+  bag.pagina = 0;
+  pintarResto();
+});
+</script>

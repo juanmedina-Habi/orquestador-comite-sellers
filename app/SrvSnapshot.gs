@@ -209,10 +209,10 @@ function getBootstrap() {
 
 function getSnapshot(nombre) {
   if (!usuarioPermitido_()) return { error: 'Sin acceso' };
-  if (['sla', 'micro', 'inmo', 'funnel'].indexOf(nombre) < 0) return { error: 'Tabla desconocida' };
+  if (['sla', 'micro', 'inmo', 'funnel', 'incons', 'actividad', 'rechazo', 'inmo_full'].indexOf(nombre) < 0) return { error: 'Tabla desconocida' };
   var meta = leerMeta_();
   var info = (meta.tablas && meta.tablas[nombre]) || {};
-  if (!info.fileId) return { error: 'Todavía no está el archivo del día.' };
+  if (!info.fileId) return { error: info.error || 'Todavía no está el archivo del día.' };
   var b64 = leerCacheSnap_(nombre, meta.actualizado);
   if (!b64) {
     var archivo = DriveApp.getFileById(info.fileId);
@@ -413,6 +413,213 @@ function refreshFunnel() {
       if (t.getHandlerFunction() === 'refreshFunnel') ScriptApp.deleteTrigger(t);
     });
   }
+}
+
+function especificacionesResto_() {
+  return [
+    { nombre: 'incons', sql: sqlIncons_(), string: ['nid', 'pais', 'equipo', 'hub_doc', 'orq_doc', 'hub_pricing', 'orq_pricing', 'hub_remo', 'orq_remo', 'hub_hesh', 'orq_hesh', 'hub_aprob', 'orq_aprob', 'general', 'oportunidad'], fecha: ['envio'], numero: [] },
+    { nombre: 'actividad', sql: sqlActividad_(), string: ['grano', 'fecha', 'hora', 'pais'], fecha: [], numero: ['n'] },
+    { nombre: 'rechazo', sql: sqlRechazo_(), string: ['mes', 'pais', 'tipo', 'razon', 'linea'], fecha: [], numero: ['n', 'rechazos'] },
+    { nombre: 'inmo_full', sql: sqlInmoFull_(), string: ['nid', 'pais', 'orq', 'razon', 'estado', 'etapa', 'fase', 'hub'], fecha: ['envio'], numero: [] },
+  ];
+}
+
+var NOMBRES_RESTO = ['incons', 'actividad', 'rechazo', 'inmo_full'];
+
+function restoListo_() {
+  var meta = leerMeta_();
+  var tablas = meta.tablas || {};
+  return NOMBRES_RESTO.every(function (nombre) {
+    var info = tablas[nombre] || {};
+    return !!(info.fileId && !info.error);
+  });
+}
+
+function restoPendiente_() {
+  var meta = leerMeta_();
+  var tablas = meta.tablas || {};
+  return especificacionesResto_().filter(function (spec) {
+    var info = tablas[spec.nombre] || {};
+    return !info.fileId && !info.error;
+  });
+}
+
+function restoAsentado_() {
+  var meta = leerMeta_();
+  var tablas = meta.tablas || {};
+  return NOMBRES_RESTO.every(function (nombre) {
+    var info = tablas[nombre] || {};
+    return !!(info.fileId || info.error);
+  });
+}
+
+function prepararResto() {
+  assertAllowed_();
+  if (restoAsentado_()) return { listo: restoListo_() };
+  if (!isOwner_()) return { listo: false };
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'refreshResto') return { listo: false, corriendo: true };
+  }
+  try {
+    ScriptApp.newTrigger('refreshResto').timeBased().after(60 * 1000).create();
+  } catch (e) {
+    return { error: 'No se pudo dejar la lectura del resto del tablero.' };
+  }
+  return { listo: false, corriendo: true };
+}
+
+function refreshResto() {
+  var lock = null;
+  var seguir = false;
+  try {
+    if (!puedeRefrescar_()) return;
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(20000)) return;
+    var pendientes = restoPendiente_();
+    if (!pendientes.length) return;
+    var spec = pendientes[0];
+    var meta = leerMeta_();
+    var tablas = Object.assign({}, meta.tablas || {});
+    try {
+      spec.ref = lanzarConsulta_(spec.sql);
+      var inicio = Date.now();
+      while (!jobListo_(spec.ref) && Date.now() - inicio < 4 * 60 * 1000) Utilities.sleep(1500);
+      if (!jobListo_(spec.ref)) throw new Error('BigQuery no terminó a tiempo');
+      var viejo = tablas[spec.nombre] && tablas[spec.nombre].fileId;
+      tablas[spec.nombre] = guardarTabla_(spec);
+      if (viejo && viejo !== tablas[spec.nombre].fileId) {
+        try { DriveApp.getFileById(viejo).setTrashed(true); } catch (e2) {}
+      }
+    } catch (e) {
+      tablas[spec.nombre] = Object.assign({}, tablas[spec.nombre], { error: String(e.message || e).slice(0, 240), fileId: '' });
+    }
+    var erroresPrevios = (meta.errores || []).filter(function (linea) {
+      return NOMBRES_RESTO.every(function (nombre) { return linea.indexOf(nombre + ':') !== 0; });
+    });
+    NOMBRES_RESTO.forEach(function (nombre) {
+      var info = tablas[nombre] || {};
+      if (info.error) erroresPrevios.push(nombre + ': ' + info.error);
+    });
+    publicarMeta_(meta.actualizado || selloBogota(), tablas, erroresPrevios);
+    seguir = restoPendiente_().length > 0;
+  } finally {
+    if (lock) { try { lock.releaseLock(); } catch (e3) {} }
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      if (t.getHandlerFunction() === 'refreshResto') ScriptApp.deleteTrigger(t);
+    });
+  }
+  if (seguir) {
+    try { ScriptApp.newTrigger('refreshResto').timeBased().after(20 * 1000).create(); } catch (e4) {}
+  }
+}
+
+function sqlIncons_() {
+  return [
+    'SELECT',
+    '  CAST(nid AS STRING) AS nid,',
+    '  IFNULL(pais_hubspot, "") AS pais,',
+    '  FORMAT_DATE("%F", DATE(fecha_envio_seller)) AS envio,',
+    '  IFNULL(equipo_sellers, "") AS equipo,',
+    '  IFNULL(estado_hub_doc, "") AS hub_doc,',
+    '  IFNULL(estado_orquestador_doc, "") AS orq_doc,',
+    '  IFNULL(estado_hub_pricing, "") AS hub_pricing,',
+    '  IFNULL(estado_orquestador_pricing, "") AS orq_pricing,',
+    '  IFNULL(estado_hub_remo, "") AS hub_remo,',
+    '  IFNULL(estado_orquestador_remo, "") AS orq_remo,',
+    '  IFNULL(estado_hub_hesh, "") AS hub_hesh,',
+    '  IFNULL(estado_orquestador_hesh, "") AS orq_hesh,',
+    '  IFNULL(estado_hub_aprobologia, "") AS hub_aprob,',
+    '  IFNULL(estado_orquestador_aprobolgia, "") AS orq_aprob,',
+    '  IFNULL(estado_orquestador_general, "") AS general,',
+    '  IFNULL(estado_oprtunidad_de_negocio, "") AS oportunidad',
+    'FROM `papyrus-delivery-data.idm_tech.inconsistencias_orquestador`',
+    'WHERE nid IS NOT NULL',
+    '  AND (fecha_envio_seller IS NULL OR DATE(fecha_envio_seller) <= CURRENT_DATE("America/Bogota"))',
+  ].join('\n');
+}
+
+function sqlActividad_() {
+  var base = [
+    'FROM `papyrus-delivery-data.idm_tech.micro_sla_orquestador`',
+    'WHERE tipo_tarea = "Revision de Remodelación"',
+    '  AND flag_doc_avanza',
+    '  AND fecha_inicio IS NOT NULL',
+    '  AND DATE(fecha_inicio) <= CURRENT_DATE("America/Bogota")',
+  ].join('\n');
+  return [
+    'SELECT "dia" AS grano, FORMAT_DATE("%F", DATE(fecha_inicio)) AS fecha, "" AS hora, IFNULL(pais, "") AS pais, COUNT(DISTINCT nid) AS n',
+    base,
+    'GROUP BY fecha, pais',
+    'UNION ALL',
+    'SELECT "hora", FORMAT_DATE("%F", DATE(fecha_inicio)), CAST(EXTRACT(HOUR FROM fecha_inicio) AS STRING), IFNULL(pais, ""), COUNT(DISTINCT nid)',
+    base,
+    'GROUP BY 2, 3, 4',
+  ].join('\n');
+}
+
+function sqlRechazo_() {
+  return [
+    'WITH base AS (',
+    '  SELECT',
+    '    CASE WHEN o.country = "CO" THEN "Colombia" WHEN o.country = "MX" THEN "Mexico" ELSE "" END AS pais,',
+    '    CASE',
+    '      WHEN o.country = "CO" THEN DATETIME(o.workflow_steps_responses_created_at, "America/Bogota")',
+    '      WHEN o.country = "MX" THEN DATETIME(o.workflow_steps_responses_created_at, "America/Mexico_City")',
+    '    END AS respuesta,',
+    '    IFNULL(o.workflow_steps_responses_detail_task_type, "") AS tipo,',
+    '    o.workflow_steps_responses_status AS estado,',
+    '    IFNULL(o.workflow_steps_responses_reason_for_discard_value, "(sin razón)") AS razon,',
+    '    IFNULL(o.workflow_alias, "") AS linea',
+    '  FROM `im-main-prod.orchestrator.PricingCommittee` o',
+    '  WHERE o.workflow_steps_responses_status IN ("REJECTED", "COMPLETED")',
+    ')',
+    'SELECT',
+    '  FORMAT_DATE("%Y-%m-01", DATE(respuesta)) AS mes,',
+    '  pais,',
+    '  tipo,',
+    '  razon,',
+    '  linea,',
+    '  COUNT(*) AS n,',
+    '  COUNTIF(estado = "REJECTED") AS rechazos',
+    'FROM base',
+    'WHERE respuesta IS NULL OR DATE(respuesta) <= CURRENT_DATE("America/Bogota")',
+    'GROUP BY 1, 2, 3, 4, 5',
+  ].join('\n');
+}
+
+function sqlInmoFull_() {
+  return [
+    'SELECT',
+    '  CAST(nid AS STRING) AS nid,',
+    '  IFNULL(pais_hubspot, "") AS pais,',
+    '  FORMAT_DATE("%F", DATE(fecha_envio_seller)) AS envio,',
+    '  IF(IFNULL(flag_orquestador, FALSE), "Si", "No") AS orq,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) THEN "Happy Path"',
+    '    WHEN IFNULL(flag_existe_al_menos_una_vez, FALSE) THEN "Orquestador en curso"',
+    '    WHEN pais_hubspot = "Mexico" AND DATE(fecha_envio_seller) <= DATE "2025-10-06" THEN "Data de prueba"',
+    '    WHEN pais_hubspot = "Colombia" AND DATE(fecha_envio_seller) <= DATE "2025-10-27" THEN "Data de prueba"',
+    '    WHEN DATE(fecha_envio_seller) >= DATE_SUB(CURRENT_DATE("America/Bogota"), INTERVAL 1 DAY) THEN "Error de actualización"',
+    '    ELSE "Sin razón"',
+    '  END AS razon,',
+    '  CASE',
+    '    WHEN estado_comite = "COMPLETED" THEN "Finalizado"',
+    '    WHEN IFNULL(flag_doc_recha, FALSE) OR IFNULL(flag_pricing_recha, FALSE) OR IFNULL(flag_check_recha, FALSE) THEN "Rechazado"',
+    '    WHEN IFNULL(flag_doc_estado_actual, FALSE) OR IFNULL(flag_princing_estado_actual, FALSE) OR IFNULL(flag_check_estado_actual, FALSE) THEN "En progreso"',
+    '    ELSE "Aún no iniciado"',
+    '  END AS estado,',
+    '  IFNULL(etapa, "") AS etapa,',
+    '  IFNULL(fase_actual, "") AS fase,',
+    '  CASE',
+    '    WHEN respuesta_hubspot = "REJECTED" THEN "Rechazado"',
+    '    WHEN respuesta_hubspot IS NULL OR respuesta_hubspot = "" THEN "Sin respuesta"',
+    '    ELSE "Aprobado"',
+    '  END AS hub',
+    'FROM `papyrus-delivery-data.idm_tech.funnel_orquestador_inmo`',
+    'WHERE nid IS NOT NULL',
+    '  AND (fecha_envio_seller IS NULL OR DATE(fecha_envio_seller) <= CURRENT_DATE("America/Bogota"))',
+  ].join('\n');
 }
 
 function bit_(expr) {

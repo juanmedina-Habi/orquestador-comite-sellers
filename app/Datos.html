@@ -67,7 +67,7 @@ function prepararTablas() {
     t.orden = orden;
   });
   VISTAS.forEach(v => {
-    if (v.id === "funnel") return;
+    if (v.id === "funnel" || ["incons", "curso", "actividad", "rechazo", "inmo_tablero"].indexOf(v.id) >= 0) return;
     const t = window.TABLAS[fuenteDe(v.id)];
     const vistaCol = t && t.cols.vista;
     const idx = [];
@@ -165,6 +165,7 @@ function paginaLocal(pedido, matches) {
   };
 }
 function catalogoDe(vista) {
+  if (["incons", "curso", "actividad", "rechazo", "inmo_tablero"].indexOf(vista) >= 0) return {};
   if (vista === "funnel") {
     const t = window.TABLAS && window.TABLAS.funnel;
     const cat = { equipo: [], propietario: [], dueno: [] };

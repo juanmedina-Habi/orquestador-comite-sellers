@@ -18,6 +18,7 @@ function pintar() {
   mostrarFiltros();
   pintarPestanas();
   if (vistaId === "funnel") pintarFunnel();
+  else if (typeof esResto === "function" && esResto()) pintarResto();
   else {
     const detalle = document.getElementById("detalle");
     detalle.classList.remove("seccion-nueva");
@@ -122,6 +123,10 @@ function pedirRecorte(soloDetalle) {
     pintarFunnel();
     return;
   }
+  if (typeof esResto === "function" && esResto()) {
+    pintarResto();
+    return;
+  }
   document.getElementById("detalle").hidden = false;
   const pedido = pedidoActual();
   const recorte = calcularRecorte(pedido);
@@ -160,6 +165,7 @@ async function traerTablas() {
     if (res.actualizado) window.ACTUALIZADO_EN = res.actualizado;
   }
   await traerFunnel();
+  await traerResto();
   prepararTablas();
 }
 async function traerFunnel() {
@@ -209,6 +215,7 @@ function vigilarArchivo(selloPrevio) {
       pintarSello();
       pedirRecorte(false);
       vigilarFunnel();
+      vigilarResto();
     } catch (e) {}
   }, 15000);
 }
@@ -223,6 +230,7 @@ async function mostrarArchivo(boot) {
     pintarSello();
     pedirRecorte(false);
     vigilarFunnel();
+    vigilarResto();
     return;
   }
   if (window.ES_OWNER) {
