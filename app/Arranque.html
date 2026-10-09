@@ -19,7 +19,9 @@ function pintar() {
   pintarPestanas();
   if (vistaId === "funnel") pintarFunnel();
   else {
-    document.getElementById("detalle").hidden = false;
+    const detalle = document.getElementById("detalle");
+    detalle.classList.remove("seccion-nueva");
+    detalle.hidden = false;
     pintarGrafica();
     pintarDetalle();
   }

@@ -115,9 +115,8 @@ function pintarFunnel() {
   document.getElementById("titulo").textContent = v.nombre;
   document.getElementById("subtitulo").textContent = v.nota;
   const detalle = document.getElementById("detalle");
-  detalle.hidden = true;
-  detalle.innerHTML = "";
-  detalleArmada = "";
+  detalle.hidden = false;
+  detalleArmada = "funnel";
   const pagina = document.getElementById("pagina");
   const pack = filasFunnel();
   if (!pack) {
@@ -170,13 +169,39 @@ function pintarFunnel() {
     <div class="marco-embudo" aria-label="Funnel ${esc(donde)}">
       <div class="lienzo-embudo">${cajas.join("")}</div>
     </div>
-    <p class="embudo-nota">Pasa el cursor por una caja para ver el nombre, el número y el porcentaje. ${esc(donde)}.</p>
-    <section class="tabla-funnel">
+    <p class="embudo-nota">Pasa el cursor por una caja para ver el nombre, el número y el porcentaje. ${esc(donde)}.</p>`;
+  if (!document.getElementById("seccion-detalle-funnel")) montarSeccionDetalle();
+  else {
+    const estado = document.getElementById("det-estado");
+    if (estado && estado.options.length < 2) instalarDetalle();
+    pintarTablaFunnel();
+  }
+}
+function montarSeccionDetalle() {
+  const detalle = document.getElementById("detalle");
+  detalle.classList.add("seccion-nueva");
+  detalle.innerHTML = `
+    <div id="seccion-detalle-funnel">
       <div class="detalle-cab">
         <div>
           <h2>Tabla de detalle</h2>
-          <p>Los nid de este embudo, con la fecha de cada etapa. La más reciente primero.</p>
+          <p>Cada envío, aparte del embudo. Estos filtros solo mueven esta tabla.</p>
         </div>
+      </div>
+      <div class="filtros-aprobologia filtros-detalle">
+        ${rango("det-envio", "Fecha de Envío Seller", "Del 1 de junio de 2025 a hoy, como en Tableau.")}
+        <label class="filtro"><span>Estado comité</span><select id="det-estado"><option value="">(Todo)</option></select></label>
+        ${selectSiNo("det-entro", "Entró al orquestador")}
+        ${selectSiNo("det-inc-doc", "Inconsistencia rev. documentos")}
+        ${selectSiNo("det-inc-checks", "Inconsistencia checks")}
+        ${selectSiNo("det-inc-hesh", "Inconsistencia hesh")}
+        ${selectSiNo("det-inc-aprob", "Inconsistencia aprobología")}
+        ${selectSiNo("det-inc-pricing", "Inconsistencia pricing")}
+        ${lista("det-equipo", "Equipo Sellers")}
+        <label class="filtro"><span>Etapa en proceso</span><select id="det-etapa"><option value="">(Todo)</option></select></label>
+        <label class="filtro"><span>Nid</span><input id="det-nid" type="search" inputmode="numeric" placeholder="Buscar nid"></label>
+        ${lista("det-propietario", "Propietario de aprobología")}
+        ${lista("det-dueno", "Propietario del negocio")}
       </div>
       <div class="detalle-bar">
         <span id="fun-cuenta"></span>
@@ -188,17 +213,74 @@ function pintarFunnel() {
       <div class="detalle-marco">
         <table>
           <thead><tr>
-            <th>País</th><th>Nid</th><th>Envío</th><th>Documentos</th><th>Remo</th><th>Checks</th><th>Pricing</th><th>Hesh</th><th>Aprobología</th><th>Fin orquestador</th><th>Respuesta</th>
+            <th>País</th><th>Nid</th><th>Fecha de envío</th><th>Estado comité</th><th>Entró al orquestador</th><th>Inconsistencia rev. documentos</th><th>Revisión documentos</th><th>Revisión remo</th><th>Checks pricing</th><th>Pricing</th><th>Hesh</th><th>Aprobología</th><th>Fin en orquestador</th>
           </tr></thead>
           <tbody id="fun-cuerpo"></tbody>
         </table>
       </div>
-    </section>`;
+    </div>`;
+  document.getElementById("det-envio-desde").value = "2025-06-01";
+  document.getElementById("det-envio-hasta").value = hoyISO();
+  document.getElementById("det-entro").value = "Si";
+  if (!detalle.dataset.escuchaDetalle) {
+    detalle.dataset.escuchaDetalle = "1";
+    detalle.addEventListener("change", e => {
+      if (!e.target.closest("#seccion-detalle-funnel")) return;
+      if (e.target.closest(".desplegable")) return;
+      busqueda.funnel.pagina = 0;
+      pintarTablaFunnel();
+    });
+  }
+  document.getElementById("det-nid").addEventListener("input", () => {
+    busqueda.funnel.pagina = 0;
+    clearTimeout(detalle._nid);
+    detalle._nid = setTimeout(pintarTablaFunnel, 200);
+  });
+  document.getElementById("fun-prev").addEventListener("click", () => moverPaginaFunnel(-1));
+  document.getElementById("fun-next").addEventListener("click", () => moverPaginaFunnel(1));
+  instalarDetalle();
   pintarTablaFunnel();
-  const prev = document.getElementById("fun-prev");
-  const next = document.getElementById("fun-next");
-  if (prev) prev.addEventListener("click", () => moverPaginaFunnel(-1));
-  if (next) next.addEventListener("click", () => moverPaginaFunnel(1));
+}
+function instalarDetalle() {
+  const t = window.TABLAS && window.TABLAS.funnel;
+  if (!t || !t.cols || !t.cols.estado || !document.getElementById("det-estado")) return;
+  const distintos = col => {
+    const set = new Set();
+    (t.cols[col] || []).forEach(v => { if (v) set.add(v); });
+    return [...set].sort((a, b) => a.localeCompare(b, "es"));
+  };
+  const llenarSelect = (id, valores) => {
+    const el = document.getElementById(id);
+    const actual = el.value;
+    el.innerHTML = `<option value="">(Todo)</option>` + valores.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    el.value = valores.indexOf(actual) >= 0 ? actual : "";
+  };
+  llenarSelect("det-estado", distintos("estado"));
+  llenarSelect("det-etapa", distintos("etapa"));
+  ["equipo", "propietario", "dueno"].forEach(dim => {
+    const id = "det-" + dim;
+    const prev = marcasActuales(id);
+    llenarLista(id, distintos(dim));
+    if (prev) marcarLista(id, prev);
+  });
+}
+function resetDetalle() {
+  const desde = document.getElementById("det-envio-desde");
+  if (!desde) return;
+  desde.value = "2025-06-01";
+  document.getElementById("det-envio-hasta").value = hoyISO();
+  document.getElementById("det-entro").value = "Si";
+  document.getElementById("det-nid").value = "";
+  ["det-estado", "det-etapa", "det-inc-doc", "det-inc-checks", "det-inc-pricing", "det-inc-hesh", "det-inc-aprob"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+  ["det-equipo", "det-propietario", "det-dueno"].forEach(id => {
+    const root = document.getElementById(id);
+    if (!root) return;
+    root.querySelectorAll("input").forEach(x => { x.checked = true; });
+    resumenLista(root);
+  });
 }
 function moverPaginaFunnel(delta) {
   busqueda.funnel.pagina = Math.max(0, (busqueda.funnel.pagina || 0) + delta);
@@ -208,9 +290,9 @@ function pintarTablaFunnel() {
   const cuerpo = document.getElementById("fun-cuerpo");
   const cuenta = document.getElementById("fun-cuenta");
   if (!cuerpo) return;
-  const pack = filasFunnel();
-  if (!pack || !(pack.t.cols && pack.t.cols.fecha_doc)) {
-    cuerpo.innerHTML = `<tr><td colspan="11">La tabla se está actualizando con las fechas de cada etapa. El embudo de arriba sigue disponible.</td></tr>`;
+  const pack = filasDetalle();
+  if (!pack) {
+    cuerpo.innerHTML = `<tr><td colspan="13">La tabla se está actualizando con los filtros de Tableau. El embudo de arriba sigue disponible.</td></tr>`;
     if (cuenta) cuenta.textContent = "";
     return;
   }
@@ -228,25 +310,71 @@ function pintarTablaFunnel() {
   cuerpo.innerHTML = corte.map(i => `<tr>
     <td>${esc(rotuloPais(c.pais[i]))}</td>
     <td class="num">${esc(c.nid[i])}</td>
-    <td class="num">${esc(fechaCorta(c.envio[i]))}</td>
-    <td class="num">${esc(fechaCorta(c.fecha_doc[i]))}</td>
-    <td class="num">${esc(fechaCorta(c.fecha_remo[i]))}</td>
-    <td class="num">${esc(fechaCorta(c.fecha_checks[i]))}</td>
-    <td class="num">${esc(fechaCorta(c.fecha_pricing[i]))}</td>
-    <td class="num">${esc(fechaCorta(c.fecha_hesh[i]))}</td>
-    <td class="num">${esc(fechaCorta(c.fecha_aprob[i]))}</td>
-    <td class="num">${esc(fechaCorta(c.fin[i]))}</td>
-    <td class="num">${esc(fechaCorta(c.fecha_respuesta[i]))}</td>
-  </tr>`).join("") || `<tr><td colspan="11">No hay nid con estos filtros.</td></tr>`;
+    <td class="num">${esc(fechaHora(c.envio[i], c.hora_envio[i]))}</td>
+    <td>${esc(c.estado[i])}</td>
+    <td>${esc(c.entro[i] === "Si" ? "Sí" : c.entro[i] === "No" ? "No" : "")}</td>
+    <td>${esc(c.inc_doc[i] === "Si" ? "Sí" : c.inc_doc[i] === "No" ? "No" : "")}</td>
+    <td class="num">${esc(fechaHora(c.fecha_doc[i], c.hora_doc[i]))}</td>
+    <td class="num">${esc(fechaHora(c.fecha_remo[i], c.hora_remo[i]))}</td>
+    <td class="num">${esc(fechaHora(c.fecha_checks[i], c.hora_checks[i]))}</td>
+    <td class="num">${esc(fechaHora(c.fecha_pricing[i], c.hora_pricing[i]))}</td>
+    <td class="num">${esc(fechaHora(c.fecha_hesh[i], c.hora_hesh[i]))}</td>
+    <td class="num">${esc(fechaHora(c.fecha_aprob[i], c.hora_aprob[i]))}</td>
+    <td class="num">${esc(fechaHora(c.fin[i], c.hora_fin[i]))}</td>
+  </tr>`).join("") || `<tr><td colspan="13">No hay nid con estos filtros.</td></tr>`;
   if (cuenta) cuenta.textContent = total ? `${nf.format(pagina * TAM + 1)}–${nf.format(Math.min(total, (pagina + 1) * TAM))} de ${nf.format(total)}` : "0 nid";
   const prev = document.getElementById("fun-prev");
   const next = document.getElementById("fun-next");
   if (prev) prev.disabled = pagina <= 0;
   if (next) next.disabled = pagina >= ultima;
 }
+function filasDetalle() {
+  const t = window.TABLAS && window.TABLAS.funnel;
+  if (!t || !t.cols || !t.cols.etapa) return null;
+  const c = t.cols;
+  const desde = val("det-envio-desde");
+  const hasta = val("det-envio-hasta");
+  const entro = val("det-entro");
+  const estado = val("det-estado");
+  const etapa = val("det-etapa");
+  const nid = (val("det-nid") || "").trim();
+  const equipo = marcas("det-equipo");
+  const propietario = marcas("det-propietario");
+  const dueno = marcas("det-dueno");
+  const inc = {
+    inc_doc: val("det-inc-doc"),
+    inc_checks: val("det-inc-checks"),
+    inc_pricing: val("det-inc-pricing"),
+    inc_hesh: val("det-inc-hesh"),
+    inc_aprob: val("det-inc-aprob"),
+  };
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (!enRango(c.envio[i], desde, hasta)) continue;
+    if (entro && c.entro[i] !== entro) continue;
+    if (estado && c.estado[i] !== estado) continue;
+    if (etapa && c.etapa[i] !== etapa) continue;
+    if (nid && String(c.nid[i]).indexOf(nid) < 0) continue;
+    if (equipo && !equipo.has(c.equipo[i])) continue;
+    if (propietario && !propietario.has(c.propietario[i])) continue;
+    if (dueno && !dueno.has(c.dueno[i])) continue;
+    let sigue = true;
+    Object.keys(inc).forEach(k => {
+      if (inc[k] && c[k][i] !== inc[k]) sigue = false;
+    });
+    if (!sigue) continue;
+    idx.push(i);
+  }
+  return { t: t, idx: idx };
+}
+function fechaHora(iso, hora) {
+  const f = fechaCorta(iso);
+  if (!f) return "";
+  return hora ? f + " " + hora : f;
+}
 function funnelActual() {
   const t = window.TABLAS && window.TABLAS.funnel;
-  return !!(t && t.cols && t.cols.fecha_doc);
+  return !!(t && t.cols && t.cols.fecha_doc && t.cols.etapa && t.cols.estado && t.cols.entro && t.cols.hora_envio);
 }
 let relojFunnel = 0;
 let intentosFunnel = 0;

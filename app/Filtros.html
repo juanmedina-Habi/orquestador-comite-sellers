@@ -229,6 +229,7 @@ function aplicarPredeterminados() {
   poner("funnel-nid", "");
   poner("funnel-envio-desde", "2025-06-01");
   poner("funnel-envio-hasta", hoy);
+  if (typeof resetDetalle === "function") resetDetalle();
 }
 function listaProvisional(id) {
   const root = document.getElementById(id);

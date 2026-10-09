@@ -266,7 +266,7 @@ function especificaciones_() {
     { nombre: 'sla', sql: sqlSla_(), string: ['nid', 'pais', 'propietario', 'equipo', 'dueno', 'respuesta', 'reintentos', 'etapa'], fecha: ['envio', 'fin'], numero: ['horas'] },
     { nombre: 'micro', sql: sqlMicro_(), string: ['vista', 'nid', 'pais', 'comite', 'agente', 'propietario', 'estado', 'tipo'], fecha: ['envio', 'inicio', 'fin'], numero: ['horas'] },
     { nombre: 'inmo', sql: sqlInmo_(), string: ['nid', 'pais', 'etapa', 'automatizacion'], fecha: ['envio', 'fin'], numero: ['horas'] },
-    { nombre: 'funnel', version: 2, sql: sqlFunnel_(), string: ['nid', 'pais', 'equipo', 'propietario', 'dueno'], fecha: ['envio', 'fecha_doc', 'fecha_remo', 'fecha_checks', 'fecha_pricing', 'fecha_hesh', 'fecha_aprob', 'fin', 'fecha_respuesta'], numero: BITS_FUNNEL },
+    { nombre: 'funnel', version: 3, sql: sqlFunnel_(), string: ['nid', 'pais', 'equipo', 'propietario', 'dueno', 'estado', 'etapa', 'entro', 'inc_doc', 'inc_checks', 'inc_pricing', 'inc_hesh', 'inc_aprob', 'hora_envio', 'hora_doc', 'hora_remo', 'hora_checks', 'hora_pricing', 'hora_hesh', 'hora_aprob', 'hora_fin'], fecha: ['envio', 'fecha_doc', 'fecha_remo', 'fecha_checks', 'fecha_pricing', 'fecha_hesh', 'fecha_aprob', 'fin', 'fecha_respuesta'], numero: BITS_FUNNEL },
   ];
 }
 
@@ -346,7 +346,7 @@ function sqlMicro_() {
 function funnelListo_() {
   var meta = leerMeta_();
   var info = (meta.tablas && meta.tablas.funnel) || {};
-  return !!(info.fileId && !info.error && Number(info.version) >= 2);
+  return !!(info.fileId && !info.error && Number(info.version) >= 3);
 }
 
 function prepararFunnel() {
@@ -426,7 +426,50 @@ function sqlFunnel_() {
     '  FORMAT_DATE("%F", DATE(respuesta_aprobologia_pais)) AS fecha_aprob,',
     '  FORMAT_DATE("%F", DATE(fin_comite_pais)) AS fin,',
     '  FORMAT_DATE("%F", DATE(fecha_respuesta)) AS fecha_respuesta,',
+    '  IFNULL(FORMAT_DATETIME("%T", fecha_envio_seller), "") AS hora_envio,',
+    '  IFNULL(FORMAT_DATETIME("%T", respuesta_doc_pais), "") AS hora_doc,',
+    '  IFNULL(FORMAT_DATETIME("%T", respuesta_remo_pais), "") AS hora_remo,',
+    '  IFNULL(FORMAT_DATETIME("%T", respuesta_checks_pais), "") AS hora_checks,',
+    '  IFNULL(FORMAT_DATETIME("%T", respuesta_pricing_pais), "") AS hora_pricing,',
+    '  IFNULL(FORMAT_DATETIME("%T", respuesta_hesh_pais), "") AS hora_hesh,',
+    '  IFNULL(FORMAT_DATETIME("%T", respuesta_aprobologia_pais), "") AS hora_aprob,',
+    '  IFNULL(FORMAT_DATETIME("%T", fin_comite_pais), "") AS hora_fin,',
     '  IFNULL(equipo_sellers, "") AS equipo,',
+    '  IFNULL(estado_comite, "") AS estado,',
+    '  CASE WHEN flag_orquestador IS NULL THEN "" WHEN flag_orquestador THEN "Si" ELSE "No" END AS entro,',
+    '  CASE',
+    '    WHEN NOT IFNULL(flag_orquestador, FALSE) THEN "No entró al orquestador"',
+    '    WHEN respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_estado_actual, FALSE) THEN "Revisión documentos"',
+    '    WHEN respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND respuesta_remo_pais IS NOT NULL AND IFNULL(flag_remo_estado_actual, FALSE) THEN "Remo"',
+    '    WHEN respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND respuesta_checks_pais IS NOT NULL AND IFNULL(flag_checks_estado_actual, FALSE) THEN "Checks"',
+    '    WHEN respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_checks_avanza, FALSE) AND (respuesta_pricing_pais IS NOT NULL OR IFNULL(flag_en_cola_pricing, FALSE)) AND IFNULL(flag_princing_estado_actual, FALSE) THEN "Pricing"',
+    '    WHEN respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND respuesta_hesh_pais IS NOT NULL AND IFNULL(flag_pricing_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND IFNULL(flag_hesh_estado_actual, FALSE) THEN "Hesh"',
+    '    WHEN IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND respuesta_aprobologia_pais IS NOT NULL AND IFNULL(flag_pricing_avanza, FALSE) AND IFNULL(flag_hesh_avanza, FALSE) AND IFNULL(flag_aprobologia_estado_actual, FALSE) THEN "Aprobologia"',
+    '    ELSE "Finalizado"',
+    '  END AS etapa,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND respuesta_doc_pais IS NULL THEN "Si"',
+    '    WHEN IFNULL(flag_orquestador, FALSE) THEN "No"',
+    '    ELSE ""',
+    '  END AS inc_doc,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_doc_avanza, FALSE) AND NOT (respuesta_checks_pais IS NOT NULL AND respuesta_doc_pais IS NOT NULL) THEN "Si"',
+    '    ELSE "No"',
+    '  END AS inc_checks,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_checks_avanza, FALSE) AND NOT (respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_checks_avanza, FALSE) AND (respuesta_pricing_pais IS NOT NULL OR IFNULL(flag_en_cola_pricing, FALSE))) THEN "Si"',
+    '    ELSE "No"',
+    '  END AS inc_pricing,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND IFNULL(flag_pricing_avanza, FALSE) AND respuesta_hesh_pais IS NULL THEN "Si"',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND IFNULL(flag_pricing_avanza, FALSE) THEN "No"',
+    '    ELSE ""',
+    '  END AS inc_hesh,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND IFNULL(flag_pricing_avanza, FALSE) AND IFNULL(flag_hesh_avanza, FALSE) AND respuesta_aprobologia_pais IS NULL THEN "Si"',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND IFNULL(flag_pricing_avanza, FALSE) AND IFNULL(flag_hesh_avanza, FALSE) THEN "No"',
+    '    ELSE ""',
+    '  END AS inc_aprob,',
     '  IFNULL(propietario_de_aprobacion_final, "") AS propietario,',
     '  IFNULL(propietario_del_negocio, "") AS dueno,',
     '  ' + bit_(orq) + ' AS orq,',
