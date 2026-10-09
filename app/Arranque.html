@@ -22,6 +22,7 @@ function pintar() {
     const detalle = document.getElementById("detalle");
     detalle.classList.remove("seccion-nueva");
     detalle.hidden = false;
+    document.getElementById("desglose").hidden = true;
     pintarGrafica();
     pintarDetalle();
   }
@@ -112,6 +113,7 @@ function programarRecorte(soloDetalle) {
 }
 function repintarDatos() {
   busqueda[vistaId].pagina = 0;
+  if (vistaId === "funnel") busqueda.funnel.paginaGrupo = 0;
   programarRecorte(false);
 }
 function pedirRecorte(soloDetalle) {
@@ -262,6 +264,8 @@ document.getElementById("pestanas").addEventListener("click", e => {
 });
 document.getElementById("limpiar").addEventListener("click", () => {
   VISTAS.forEach(v => { busqueda[v.id].periodo = ""; busqueda[v.id].pagina = 0; });
+  busqueda.funnel.grupo = "";
+  busqueda.funnel.paginaGrupo = 0;
   aplicarPredeterminados();
   repintarDatos();
 });

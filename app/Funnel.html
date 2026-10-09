@@ -122,6 +122,8 @@ function pintarFunnel() {
   if (!pack) {
     const extra = window.ERROR_FUNNEL ? ` ${esc(window.ERROR_FUNNEL)}` : " Si acabas de publicar, vuelve a esta pestaña en un minuto.";
     pagina.innerHTML = `<p class="aviso-espera">El funnel se está preparando con la lectura del día. Las pestañas de SLA siguen disponibles.${extra}</p>`;
+    const desglose = document.getElementById("desglose");
+    if (desglose) desglose.hidden = true;
     return;
   }
   const n = contarFunnel(pack.t, pack.idx);
@@ -170,6 +172,7 @@ function pintarFunnel() {
       <div class="lienzo-embudo">${cajas.join("")}</div>
     </div>
     <p class="embudo-nota">Pasa el cursor por una caja para ver el nombre, el número y el porcentaje. ${esc(donde)}.</p>`;
+  pintarDesglose();
   if (!document.getElementById("seccion-detalle-funnel")) montarSeccionDetalle();
   else {
     const equipo = document.getElementById("det-equipo");
@@ -378,6 +381,116 @@ function filasDetalle() {
   }
   return { t: t, idx: idx };
 }
+const GRUPOS_ENVIO = [
+  { id: "llego", nombre: "Llegó al orquestador" },
+  { id: "curso", nombre: "Comité en curso" },
+  { id: "revision", nombre: "En revisión" },
+];
+function grupoEnvio(c, i) {
+  if (c.orq[i] === "1") return "llego";
+  if (!(c.comite_curso && c.envio_pasado)) return "";
+  if (c.comite_curso[i] === "1" || c.envio_pasado[i] === "1") return "curso";
+  return "revision";
+}
+function pintarDesglose() {
+  const root = document.getElementById("desglose");
+  if (!root) return;
+  const pack = filasFunnel();
+  if (!pack) {
+    root.hidden = true;
+    return;
+  }
+  root.hidden = false;
+  if (!root.dataset.escucha) {
+    root.dataset.escucha = "1";
+    root.addEventListener("click", e => {
+      const barra = e.target.closest("[data-grupo]");
+      if (barra && !barra.disabled) {
+        const id = barra.dataset.grupo;
+        busqueda.funnel.grupo = busqueda.funnel.grupo === id ? "" : id;
+        busqueda.funnel.paginaGrupo = 0;
+        pintarDesglose();
+        return;
+      }
+      if (e.target.id === "desg-prev") moverGrupo(-1);
+      if (e.target.id === "desg-next") moverGrupo(1);
+    });
+  }
+  const c = pack.t.cols;
+  const clasificado = !!(c.comite_curso && c.envio_pasado);
+  const conteo = { llego: 0, curso: 0, revision: 0 };
+  let fuera = 0;
+  pack.idx.forEach(i => {
+    const g = grupoEnvio(c, i);
+    if (g) conteo[g]++;
+    else fuera++;
+  });
+  const total = pack.idx.length;
+  const mayor = Math.max(conteo.llego, conteo.curso, conteo.revision, 1);
+  const elegido = busqueda.funnel.grupo || "";
+  const barras = GRUPOS_ENVIO.map(g => {
+    const n = conteo[g.id];
+    const listo = g.id === "llego" || clasificado;
+    const ancho = listo ? Math.max(2, Math.round(100 * n / mayor)) : 0;
+    const activo = elegido === g.id ? " activa" : "";
+    return `<button type="button" class="barra-desglose ${g.id}${activo}" data-grupo="${g.id}"${listo ? "" : " disabled"}>
+      <b>${esc(g.nombre)}</b>
+      <span class="barra-pista"><i style="width:${ancho}%"></i></span>
+      <strong>${listo ? nf.format(n) : "…"}</strong>
+      <small>${listo ? pctTxt(n, total) : ""}</small>
+    </button>`;
+  }).join("");
+  const aviso = clasificado ? "" : `<p class="desglose-nota">Sin llegar al orquestador: ${nf.format(fuera)}. El corte entre comité en curso y en revisión se completa en un momento.</p>`;
+  let lista = "";
+  if (elegido && (elegido === "llego" || clasificado)) {
+    const nombre = (GRUPOS_ENVIO.find(g => g.id === elegido) || {}).nombre || "";
+    const filas = pack.idx.filter(i => grupoEnvio(c, i) === elegido).sort((a, b) => {
+      if (c.envio[a] !== c.envio[b]) return c.envio[a] < c.envio[b] ? 1 : -1;
+      if (c.nid[a] !== c.nid[b]) return c.nid[a] < c.nid[b] ? 1 : -1;
+      return 0;
+    });
+    const paso = 15;
+    const ultima = Math.max(0, Math.ceil(filas.length / paso) - 1);
+    let pagina = busqueda.funnel.paginaGrupo || 0;
+    if (pagina > ultima) pagina = ultima;
+    busqueda.funnel.paginaGrupo = pagina;
+    const corte = filas.slice(pagina * paso, pagina * paso + paso);
+    const cuenta = filas.length ? `${nf.format(pagina * paso + 1)}–${nf.format(Math.min(filas.length, (pagina + 1) * paso))} de ${nf.format(filas.length)}` : "0 nid";
+    lista = `<div class="desglose-lista">
+      <div class="detalle-bar"><span>${esc(nombre)}. ${cuenta}. Vuelve a pulsar la barra para cerrar la lista.</span>
+        <span class="detalle-nav">
+          <button type="button" class="btn-limpiar" id="desg-prev"${pagina <= 0 ? " disabled" : ""}>Anterior</button>
+          <button type="button" class="btn-limpiar" id="desg-next"${pagina >= ultima ? " disabled" : ""}>Siguiente</button>
+        </span>
+      </div>
+      <div class="detalle-marco">
+        <table>
+          <thead><tr><th>Fecha de envío</th><th>Nid</th><th>País</th><th>Categoría</th></tr></thead>
+          <tbody>${corte.map(i => `<tr>
+            <td class="num">${esc(fechaCorta(c.envio[i]))}</td>
+            <td class="num">${esc(c.nid[i])}</td>
+            <td>${esc(rotuloPais(c.pais[i]))}</td>
+            <td>${esc(nombre)}</td>
+          </tr>`).join("") || `<tr><td colspan="4">No hay nid en este grupo.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+  root.innerHTML = `
+    <div class="detalle-cab">
+      <div>
+        <h2>Desglose de envíos</h2>
+        <p>Los envíos de este embudo, con las tres categorías de Tableau. Sigue los filtros de arriba.</p>
+      </div>
+    </div>
+    <div class="barras-desglose">${barras}</div>
+    ${aviso}
+    ${lista}`;
+}
+function moverGrupo(delta) {
+  busqueda.funnel.paginaGrupo = Math.max(0, (busqueda.funnel.paginaGrupo || 0) + delta);
+  pintarDesglose();
+}
 function fechaHora(iso, hora) {
   const f = fechaCorta(iso);
   if (!f) return "";
@@ -385,7 +498,7 @@ function fechaHora(iso, hora) {
 }
 function funnelActual() {
   const t = window.TABLAS && window.TABLAS.funnel;
-  return !!(t && t.cols && t.cols.fecha_doc && t.cols.etapa && t.cols.estado && t.cols.entro && t.cols.hora_envio);
+  return !!(t && t.cols && t.cols.fecha_doc && t.cols.etapa && t.cols.estado && t.cols.entro && t.cols.hora_envio && t.cols.comite_curso && t.cols.envio_pasado);
 }
 let relojFunnel = 0;
 let intentosFunnel = 0;

@@ -266,7 +266,7 @@ function especificaciones_() {
     { nombre: 'sla', sql: sqlSla_(), string: ['nid', 'pais', 'propietario', 'equipo', 'dueno', 'respuesta', 'reintentos', 'etapa'], fecha: ['envio', 'fin'], numero: ['horas'] },
     { nombre: 'micro', sql: sqlMicro_(), string: ['vista', 'nid', 'pais', 'comite', 'agente', 'propietario', 'estado', 'tipo'], fecha: ['envio', 'inicio', 'fin'], numero: ['horas'] },
     { nombre: 'inmo', sql: sqlInmo_(), string: ['nid', 'pais', 'etapa', 'automatizacion'], fecha: ['envio', 'fin'], numero: ['horas'] },
-    { nombre: 'funnel', version: 3, sql: sqlFunnel_(), string: ['nid', 'pais', 'equipo', 'propietario', 'dueno', 'estado', 'etapa', 'entro', 'inc_doc', 'inc_checks', 'inc_pricing', 'inc_hesh', 'inc_aprob', 'hora_envio', 'hora_doc', 'hora_remo', 'hora_checks', 'hora_pricing', 'hora_hesh', 'hora_aprob', 'hora_fin'], fecha: ['envio', 'fecha_doc', 'fecha_remo', 'fecha_checks', 'fecha_pricing', 'fecha_hesh', 'fecha_aprob', 'fin', 'fecha_respuesta'], numero: BITS_FUNNEL },
+    { nombre: 'funnel', version: 4, sql: sqlFunnel_(), string: ['nid', 'pais', 'equipo', 'propietario', 'dueno', 'estado', 'etapa', 'entro', 'inc_doc', 'inc_checks', 'inc_pricing', 'inc_hesh', 'inc_aprob', 'hora_envio', 'hora_doc', 'hora_remo', 'hora_checks', 'hora_pricing', 'hora_hesh', 'hora_aprob', 'hora_fin'], fecha: ['envio', 'fecha_doc', 'fecha_remo', 'fecha_checks', 'fecha_pricing', 'fecha_hesh', 'fecha_aprob', 'fin', 'fecha_respuesta'], numero: BITS_FUNNEL },
   ];
 }
 
@@ -278,6 +278,7 @@ var BITS_FUNNEL = [
   'rev_hesh', 'hesh_ok', 'hesh_curso',
   'rev_armado', 'armado_ok', 'armado_curso', 'armado_recha',
   'rev_aprob', 'aprob_ok', 'aprob_curso', 'aprob_recha',
+  'comite_curso', 'envio_pasado',
 ];
 
 function sqlSla_() {
@@ -346,7 +347,7 @@ function sqlMicro_() {
 function funnelListo_() {
   var meta = leerMeta_();
   var info = (meta.tablas && meta.tablas.funnel) || {};
-  return !!(info.fileId && !info.error && Number(info.version) >= 3);
+  return !!(info.fileId && !info.error && Number(info.version) >= 4);
 }
 
 function prepararFunnel() {
@@ -498,7 +499,9 @@ function sqlFunnel_() {
     '  ' + bit_(aprob) + ' AS rev_aprob,',
     '  ' + bit_('IFNULL(flag_aprobologia_avanza, FALSE)') + ' AS aprob_ok,',
     '  ' + bit_('IFNULL(flag_aprobologia_estado_actual, FALSE)') + ' AS aprob_curso,',
-    '  ' + bit_('IFNULL(flag_aprobologia_recha, FALSE)') + ' AS aprob_recha',
+    '  ' + bit_('IFNULL(flag_aprobologia_recha, FALSE)') + ' AS aprob_recha,',
+    '  ' + bit_('IFNULL(flag_comite_curso, FALSE)') + ' AS comite_curso,',
+    '  ' + bit_('IFNULL(flag_envio_mes_pasado, FALSE)') + ' AS envio_pasado',
     'FROM `papyrus-delivery-data.idm_tech.tabla_funnel_orquestador`',
     'WHERE nid IS NOT NULL',
     '  AND (fecha_envio_seller IS NULL OR DATE(fecha_envio_seller) <= CURRENT_DATE("America/Bogota"))',
