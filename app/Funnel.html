@@ -90,11 +90,22 @@ function pctTxt(parte, base) {
   if (!base) return "—";
   return nf1.format((100 * parte) / base) + "%";
 }
-function estadoFunnel(nombre, valor, base, tono) {
-  return `<div class="funnel-estado"><span><i class="tono-${tono}"></i>${esc(nombre)}</span><b>${nf.format(valor)}<small>${pctTxt(valor, base)}</small></b></div>`;
+function anchoEmbudo(valor, base) {
+  if (!base) return 42;
+  return Math.max(42, Math.min(100, Math.round((100 * valor) / base)));
 }
-function columnaFunnel(titulo, total, base, filas) {
-  return `<article class="funnel-etapa"><h3>${esc(titulo)}</h3><p class="funnel-total">${nf.format(total)}</p><p class="funnel-base">${esc(base)}</p>${filas}</article>`;
+function pastillas(items) {
+  const vivas = items.filter(x => x.valor);
+  if (!vivas.length) return "";
+  return `<div class="embudo-pastillas">${vivas.map(x =>
+    `<span class="embudo-pill ${x.tono || ""}">${esc(x.nombre)}<b>${nf.format(x.valor)}</b> ${pctTxt(x.valor, x.base)}</span>`
+  ).join("")}</div>`;
+}
+function barraEmbudo(titulo, valor, detalle, ancho) {
+  return `<div class="embudo-riel"><div class="embudo-barra" style="width:${ancho}%"><b>${esc(titulo)}</b><strong>${nf.format(valor)}</strong><small>${esc(detalle)}</small></div></div>`;
+}
+function pasoEmbudo(titulo, valor, detalle, ancho, items) {
+  return `<div>${barraEmbudo(titulo, valor, detalle, ancho)}${pastillas(items)}</div>`;
 }
 function pintarFunnel() {
   const v = VISTAS.find(x => x.id === "funnel");
@@ -114,52 +125,67 @@ function pintarFunnel() {
   const n = contarFunnel(pack.t, pack.idx);
   const pais = radio("funnel-pais");
   const donde = pais ? rotuloPais(pais) : "Todos los países";
+  const base = Math.max(n.llego, 1);
+  const siguen = (valor, de) => `${nf.format(de)} entran · ${pctTxt(valor, de)} siguen`;
   pagina.innerHTML = `
-    <div class="franja">
+    <div class="embudo-cabeza">
       <div>
-        <h2>Funnel Orquestador Comité Sellers</h2>
-        <p>${esc(donde)} · ${nf.format(n.envios)} envíos</p>
+        <p>Envíos a comité</p>
+        <strong>${nf.format(n.envios)}</strong>
+      </div>
+      <p>${esc(donde)}</p>
+    </div>
+    <div class="embudo-abre" style="grid-template-columns: minmax(160px, ${Math.max(n.noLlego, 1)}fr) minmax(280px, ${Math.max(n.llego, 1)}fr)">
+      <aside class="embudo-queda">
+        <span>Se detienen</span>
+        <strong>${nf.format(n.noLlego)}</strong>
+        <small>No llegaron al orquestador · ${pctTxt(n.noLlego, n.envios)} de los envíos. Este lado no sigue.</small>
+      </aside>
+      <div class="embudo-camino">
+        <p class="embudo-kicker">Siguen</p>
+        ${pasoEmbudo("Recibidos por el orquestador", n.llego, pctTxt(n.llego, n.envios) + " de los envíos", 100, [])}
+        ${pasoEmbudo("Revisión de documentos", n.docOk, siguen(n.docOk, n.doc), anchoEmbudo(n.docOk, base), [
+          { nombre: "No inició", valor: n.docNo, base: n.llego, tono: "" },
+          { nombre: "En curso", valor: n.docCurso, base: n.doc, tono: "curso" },
+          { nombre: "Rechazado", valor: n.docRecha, base: n.doc, tono: "recha" },
+        ])}
+        <div class="embudo-par">
+          <div>
+            ${pasoEmbudo("Checks", n.checksOk, siguen(n.checksOk, n.checks), 100, [
+              { nombre: "En curso", valor: n.checksCurso, base: n.checks, tono: "curso" },
+              { nombre: "Sin tarea", valor: n.checksNo, base: n.docOk, tono: "" },
+            ])}
+          </div>
+          <div>
+            ${pasoEmbudo("Remodelación", n.remoOk, siguen(n.remoOk, n.remo), 100, [
+              { nombre: "En curso", valor: n.remoCurso, base: n.remo, tono: "curso" },
+              { nombre: "Rechazado", valor: n.remoRecha, base: n.remo, tono: "recha" },
+            ])}
+          </div>
+        </div>
+        ${pasoEmbudo("Pricing", n.pricingOk, siguen(n.pricingOk, n.pricing), anchoEmbudo(n.pricingOk, base), [
+          { nombre: "En curso", valor: n.pricingCurso, base: n.pricing, tono: "curso" },
+          { nombre: "Rechazado", valor: n.pricingRecha, base: n.pricing, tono: "recha" },
+          { nombre: "Sin tarea", valor: n.pricingSin, base: n.checksOk, tono: "" },
+        ])}
+        ${pasoEmbudo("Remo y pricing", n.finalizo, pctTxt(n.finalizo, n.llego) + " de los que llegaron", anchoEmbudo(n.finalizo, base), [])}
+        ${pasoEmbudo("Hesh", n.heshOk, siguen(n.heshOk, n.hesh), anchoEmbudo(n.heshOk, base), [
+          { nombre: "En curso", valor: n.heshCurso, base: n.hesh, tono: "curso" },
+          { nombre: "Sin tarea", valor: n.heshNo, base: n.docOk, tono: "" },
+        ])}
+        ${pasoEmbudo("Armado de precio", n.armadoOk, siguen(n.armadoOk, n.armado), anchoEmbudo(n.armadoOk, base), [
+          { nombre: "En curso", valor: n.armadoCurso, base: n.armado, tono: "curso" },
+          { nombre: "Rechazado", valor: n.armadoRecha, base: n.armado, tono: "recha" },
+          { nombre: "Sin inicial", valor: n.armadoSin, base: n.heshOk, tono: "" },
+        ])}
+        ${pasoEmbudo("Aprobología", n.aprobOk, siguen(n.aprobOk, n.aprob), anchoEmbudo(n.aprobOk, base), [
+          { nombre: "En curso", valor: n.aprobCurso, base: n.heshOk, tono: "curso" },
+          { nombre: "Rechazado", valor: n.aprobRecha, base: n.heshOk, tono: "recha" },
+          { nombre: "Sin tarea", valor: n.aprobSin, base: n.heshOk, tono: "" },
+        ])}
       </div>
     </div>
-    <div class="funnel">
-      ${columnaFunnel("Envíos a comité", n.envios, "nid enviados",
-        estadoFunnel("Llegó a orquestador", n.llego, n.envios, "ok")
-        + estadoFunnel("No llegó", n.noLlego, n.envios, "muted"))}
-      ${columnaFunnel("Revisión documentos", n.doc, pctTxt(n.doc, n.llego) + " de los que llegaron",
-        estadoFunnel("Aprobado", n.docOk, n.doc, "ok")
-        + estadoFunnel("En curso", n.docCurso, n.doc, "curso")
-        + estadoFunnel("Rechazado", n.docRecha, n.doc, "recha")
-        + estadoFunnel("No inició", n.docNo, n.llego, "muted"))}
-      ${columnaFunnel("Checks pricing", n.checks, pctTxt(n.checks, n.docOk) + " de documentos aprobados",
-        estadoFunnel("Aprobado", n.checksOk, n.checks, "ok")
-        + estadoFunnel("En curso", n.checksCurso, n.checks, "curso")
-        + estadoFunnel("No creado", n.checksNo, n.docOk, "muted"))}
-      ${columnaFunnel("Pricing", n.pricing, pctTxt(n.pricing, n.checksOk) + " de checks aprobados",
-        estadoFunnel("Aprobado", n.pricingOk, n.pricing, "ok")
-        + estadoFunnel("En curso", n.pricingCurso, n.pricing, "curso")
-        + estadoFunnel("Rechazado", n.pricingRecha, n.pricing, "recha")
-        + estadoFunnel("Sin actividad", n.pricingSin, n.checksOk, "muted"))}
-      ${columnaFunnel("Remodelación", n.remo, pctTxt(n.remo, n.docOk) + " de documentos aprobados",
-        estadoFunnel("Aprobado", n.remoOk, n.remo, "ok")
-        + estadoFunnel("En curso", n.remoCurso, n.remo, "curso")
-        + estadoFunnel("Rechazado", n.remoRecha, n.remo, "recha"))}
-      ${columnaFunnel("Remo y pricing", n.finalizo, pctTxt(n.finalizo, n.llego) + " de los que llegaron", "")}
-      ${columnaFunnel("Hesh", n.hesh, pctTxt(n.hesh, n.docOk) + " de documentos aprobados",
-        estadoFunnel("Aprobado", n.heshOk, n.docOk, "ok")
-        + estadoFunnel("En curso", n.heshCurso, n.hesh, "curso")
-        + estadoFunnel("No creado", n.heshNo, n.docOk, "muted"))}
-      ${columnaFunnel("Armado de precio", n.armado, pctTxt(n.armado, n.heshOk) + " de hesh aprobado",
-        estadoFunnel("Aprobado", n.armadoOk, n.armado, "ok")
-        + estadoFunnel("En curso", n.armadoCurso, n.armado, "curso")
-        + estadoFunnel("Rechazado", n.armadoRecha, n.armado, "recha")
-        + estadoFunnel("Sin inicial", n.armadoSin, n.heshOk, "muted"))}
-      ${columnaFunnel("Aprobología", n.aprob, pctTxt(n.aprob, n.heshOk) + " de hesh aprobado",
-        estadoFunnel("Aprobado", n.aprobOk, n.heshOk, "ok")
-        + estadoFunnel("En curso", n.aprobCurso, n.heshOk, "curso")
-        + estadoFunnel("Rechazado", n.aprobRecha, n.heshOk, "recha")
-        + estadoFunnel("Sin crear", n.aprobSin, n.heshOk, "muted"))}
-    </div>
-    <p class="funnel-nota">El número grande es el total de la etapa. El porcentaje de cada estado es sobre ese total, salvo No inició, No creado, Sin actividad, Sin inicial y Sin crear, que se miden contra la etapa de la que salen. Desliza a la derecha para ver hesh, armado y aprobología.</p>`;
+    <p class="embudo-nota">La barra verde es quien sigue, y se angosta porque cada etapa deja gente atrás. La pastilla dice cuántos se quedaron ahí: en curso, rechazado o sin tarea.</p>`;
 }
 let relojFunnel = 0;
 let intentosFunnel = 0;
