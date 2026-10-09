@@ -172,8 +172,12 @@ function pintarFunnel() {
     <p class="embudo-nota">Pasa el cursor por una caja para ver el nombre, el número y el porcentaje. ${esc(donde)}.</p>`;
   if (!document.getElementById("seccion-detalle-funnel")) montarSeccionDetalle();
   else {
+    const equipo = document.getElementById("det-equipo");
+    const sinLista = equipo && !equipo.querySelector("input[data-valor]");
     const estado = document.getElementById("det-estado");
-    if (estado && estado.options.length < 2) instalarDetalle();
+    const cols = window.TABLAS && window.TABLAS.funnel && window.TABLAS.funnel.cols;
+    const sinEstado = estado && estado.options.length < 2 && cols && cols.estado;
+    if (sinLista || sinEstado) instalarDetalle();
     pintarTablaFunnel();
   }
 }
@@ -185,7 +189,7 @@ function montarSeccionDetalle() {
       <div class="detalle-cab">
         <div>
           <h2>Tabla de detalle</h2>
-          <p>Cada envío, aparte del embudo. Estos filtros solo mueven esta tabla.</p>
+          <p>Abre como en Tableau: envíos del 1 de junio de 2025 a hoy que sí entraron al orquestador. El resto de filtros queda en (Todo).</p>
         </div>
       </div>
       <div class="filtros-aprobologia filtros-detalle">
@@ -243,7 +247,7 @@ function montarSeccionDetalle() {
 }
 function instalarDetalle() {
   const t = window.TABLAS && window.TABLAS.funnel;
-  if (!t || !t.cols || !t.cols.estado || !document.getElementById("det-estado")) return;
+  if (!t || !t.cols || !document.getElementById("det-estado")) return;
   const distintos = col => {
     const set = new Set();
     (t.cols[col] || []).forEach(v => { if (v) set.add(v); });
@@ -255,8 +259,8 @@ function instalarDetalle() {
     el.innerHTML = `<option value="">(Todo)</option>` + valores.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
     el.value = valores.indexOf(actual) >= 0 ? actual : "";
   };
-  llenarSelect("det-estado", distintos("estado"));
-  llenarSelect("det-etapa", distintos("etapa"));
+  if (t.cols.estado) llenarSelect("det-estado", distintos("estado"));
+  if (t.cols.etapa) llenarSelect("det-etapa", distintos("etapa"));
   ["equipo", "propietario", "dueno"].forEach(dim => {
     const id = "det-" + dim;
     const prev = marcasActuales(id);
@@ -292,11 +296,12 @@ function pintarTablaFunnel() {
   if (!cuerpo) return;
   const pack = filasDetalle();
   if (!pack) {
-    cuerpo.innerHTML = `<tr><td colspan="13">La tabla se está actualizando con los filtros de Tableau. El embudo de arriba sigue disponible.</td></tr>`;
+    cuerpo.innerHTML = `<tr><td colspan="13">Todavía no llega el listado de envíos. El embudo de arriba sigue disponible.</td></tr>`;
     if (cuenta) cuenta.textContent = "";
     return;
   }
   const c = pack.t.cols;
+  const celda = (nombre, i) => (c[nombre] ? (c[nombre][i] || "") : "");
   const orden = pack.idx.slice().sort((a, b) => {
     if (c.envio[a] !== c.envio[b]) return c.envio[a] < c.envio[b] ? 1 : -1;
     if (c.nid[a] !== c.nid[b]) return c.nid[a] < c.nid[b] ? 1 : -1;
@@ -310,17 +315,17 @@ function pintarTablaFunnel() {
   cuerpo.innerHTML = corte.map(i => `<tr>
     <td>${esc(rotuloPais(c.pais[i]))}</td>
     <td class="num">${esc(c.nid[i])}</td>
-    <td class="num">${esc(fechaHora(c.envio[i], c.hora_envio[i]))}</td>
-    <td>${esc(c.estado[i])}</td>
-    <td>${esc(c.entro[i] === "Si" ? "Sí" : c.entro[i] === "No" ? "No" : "")}</td>
-    <td>${esc(c.inc_doc[i] === "Si" ? "Sí" : c.inc_doc[i] === "No" ? "No" : "")}</td>
-    <td class="num">${esc(fechaHora(c.fecha_doc[i], c.hora_doc[i]))}</td>
-    <td class="num">${esc(fechaHora(c.fecha_remo[i], c.hora_remo[i]))}</td>
-    <td class="num">${esc(fechaHora(c.fecha_checks[i], c.hora_checks[i]))}</td>
-    <td class="num">${esc(fechaHora(c.fecha_pricing[i], c.hora_pricing[i]))}</td>
-    <td class="num">${esc(fechaHora(c.fecha_hesh[i], c.hora_hesh[i]))}</td>
-    <td class="num">${esc(fechaHora(c.fecha_aprob[i], c.hora_aprob[i]))}</td>
-    <td class="num">${esc(fechaHora(c.fin[i], c.hora_fin[i]))}</td>
+    <td class="num">${esc(fechaHora(celda("envio", i), celda("hora_envio", i)))}</td>
+    <td>${esc(celda("estado", i))}</td>
+    <td>${esc(textoSiNo(c.entro ? celda("entro", i) : (c.orq[i] === "1" ? "Si" : "No")))}</td>
+    <td>${esc(textoSiNo(celda("inc_doc", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_doc", i), celda("hora_doc", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_remo", i), celda("hora_remo", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_checks", i), celda("hora_checks", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_pricing", i), celda("hora_pricing", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_hesh", i), celda("hora_hesh", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_aprob", i), celda("hora_aprob", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fin", i), celda("hora_fin", i)))}</td>
   </tr>`).join("") || `<tr><td colspan="13">No hay nid con estos filtros.</td></tr>`;
   if (cuenta) cuenta.textContent = total ? `${nf.format(pagina * TAM + 1)}–${nf.format(Math.min(total, (pagina + 1) * TAM))} de ${nf.format(total)}` : "0 nid";
   const prev = document.getElementById("fun-prev");
@@ -328,9 +333,12 @@ function pintarTablaFunnel() {
   if (prev) prev.disabled = pagina <= 0;
   if (next) next.disabled = pagina >= ultima;
 }
+function textoSiNo(v) {
+  return v === "Si" ? "Sí" : v === "No" ? "No" : "";
+}
 function filasDetalle() {
   const t = window.TABLAS && window.TABLAS.funnel;
-  if (!t || !t.cols || !t.cols.etapa) return null;
+  if (!t || !t.cols || !t.n) return null;
   const c = t.cols;
   const desde = val("det-envio-desde");
   const hasta = val("det-envio-hasta");
@@ -351,16 +359,19 @@ function filasDetalle() {
   const idx = [];
   for (let i = 0; i < t.n; i++) {
     if (!enRango(c.envio[i], desde, hasta)) continue;
-    if (entro && c.entro[i] !== entro) continue;
-    if (estado && c.estado[i] !== estado) continue;
-    if (etapa && c.etapa[i] !== etapa) continue;
+    if (entro) {
+      const marca = c.entro ? c.entro[i] : (c.orq[i] === "1" ? "Si" : "No");
+      if (marca !== entro) continue;
+    }
+    if (estado && c.estado && c.estado[i] !== estado) continue;
+    if (etapa && c.etapa && c.etapa[i] !== etapa) continue;
     if (nid && String(c.nid[i]).indexOf(nid) < 0) continue;
     if (equipo && !equipo.has(c.equipo[i])) continue;
     if (propietario && !propietario.has(c.propietario[i])) continue;
     if (dueno && !dueno.has(c.dueno[i])) continue;
     let sigue = true;
     Object.keys(inc).forEach(k => {
-      if (inc[k] && c[k][i] !== inc[k]) sigue = false;
+      if (inc[k] && c[k] && c[k][i] !== inc[k]) sigue = false;
     });
     if (!sigue) continue;
     idx.push(i);
