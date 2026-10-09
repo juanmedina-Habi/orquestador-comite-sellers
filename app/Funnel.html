@@ -70,12 +70,13 @@ function contarFunnel(t, idx) {
     if (revDoc && revHesh && docOk) n.hesh++;
     if (revDoc && docOk && heshOk) n.heshOk++;
     if (revDoc && revHesh && docOk && uno(c, i, "hesh_curso")) n.heshCurso++;
-    if (revDoc && !revHesh && docOk) n.heshNo++;
-    if (revArmado && docOk && heshOk) n.armado++;
-    if (revArmado && docOk && heshOk && uno(c, i, "armado_ok")) n.armadoOk++;
-    if (revArmado && docOk && heshOk && uno(c, i, "armado_curso")) n.armadoCurso++;
-    if (revArmado && docOk && heshOk && uno(c, i, "armado_recha")) n.armadoRecha++;
-    if (!revArmado && docOk && heshOk) n.armadoSin++;
+    if (revDoc && !revHesh && docOk && pricingOk && remoOk) n.heshNo++;
+    const puertaArmado = docOk && heshOk && pricingOk && remoOk && (c.envio[i] || "") > "2025-10-26";
+    if (puertaArmado && revArmado) n.armado++;
+    if (puertaArmado && revArmado && uno(c, i, "armado_ok")) n.armadoOk++;
+    if (puertaArmado && revArmado && uno(c, i, "armado_curso")) n.armadoCurso++;
+    if (puertaArmado && revArmado && uno(c, i, "armado_recha")) n.armadoRecha++;
+    if (puertaArmado && !revArmado) n.armadoSin++;
     if (revAprob && docOk && heshOk) n.aprob++;
     if (docOk && heshOk && uno(c, i, "aprob_ok")) n.aprobOk++;
     if (docOk && heshOk && uno(c, i, "aprob_curso")) n.aprobCurso++;
@@ -90,22 +91,11 @@ function pctTxt(parte, base) {
   if (!base) return "—";
   return nf1.format((100 * parte) / base) + "%";
 }
-function anchoEmbudo(valor, base) {
-  if (!base) return 42;
-  return Math.max(42, Math.min(100, Math.round((100 * valor) / base)));
+function caja(nombre, valor, base, tono) {
+  return `<article class="caja ${tono || ""}"><span>${esc(nombre)}</span><strong>${nf.format(valor)}</strong><small>${pctTxt(valor, base)}</small></article>`;
 }
-function pastillas(items) {
-  const vivas = items.filter(x => x.valor);
-  if (!vivas.length) return "";
-  return `<div class="embudo-pastillas">${vivas.map(x =>
-    `<span class="embudo-pill ${x.tono || ""}">${esc(x.nombre)}<b>${nf.format(x.valor)}</b> ${pctTxt(x.valor, x.base)}</span>`
-  ).join("")}</div>`;
-}
-function barraEmbudo(titulo, valor, detalle, ancho) {
-  return `<div class="embudo-riel"><div class="embudo-barra" style="width:${ancho}%"><b>${esc(titulo)}</b><strong>${nf.format(valor)}</strong><small>${esc(detalle)}</small></div></div>`;
-}
-function pasoEmbudo(titulo, valor, detalle, ancho, items) {
-  return `<div>${barraEmbudo(titulo, valor, detalle, ancho)}${pastillas(items)}</div>`;
+function bloque(titulo, cajas) {
+  return `<section class="embudo-bloque"><h3>${esc(titulo)}</h3><div class="embudo-cajas">${cajas}</div></section>`;
 }
 function pintarFunnel() {
   const v = VISTAS.find(x => x.id === "funnel");
@@ -125,67 +115,70 @@ function pintarFunnel() {
   const n = contarFunnel(pack.t, pack.idx);
   const pais = radio("funnel-pais");
   const donde = pais ? rotuloPais(pais) : "Todos los países";
-  const base = Math.max(n.llego, 1);
-  const siguen = (valor, de) => `${nf.format(de)} entran · ${pctTxt(valor, de)} siguen`;
   pagina.innerHTML = `
     <div class="embudo-cabeza">
       <div>
-        <p>Envíos a comité</p>
+        <p>Cantidad de envíos a comité</p>
         <strong>${nf.format(n.envios)}</strong>
       </div>
       <p>${esc(donde)}</p>
     </div>
-    <div class="embudo-abre" style="grid-template-columns: minmax(160px, ${Math.max(n.noLlego, 1)}fr) minmax(280px, ${Math.max(n.llego, 1)}fr)">
-      <aside class="embudo-queda">
-        <span>Se detienen</span>
-        <strong>${nf.format(n.noLlego)}</strong>
-        <small>No llegaron al orquestador · ${pctTxt(n.noLlego, n.envios)} de los envíos. Este lado no sigue.</small>
-      </aside>
-      <div class="embudo-camino">
-        <p class="embudo-kicker">Siguen</p>
-        ${pasoEmbudo("Recibidos por el orquestador", n.llego, pctTxt(n.llego, n.envios) + " de los envíos", 100, [])}
-        ${pasoEmbudo("Revisión de documentos", n.docOk, siguen(n.docOk, n.doc), anchoEmbudo(n.docOk, base), [
-          { nombre: "No inició", valor: n.docNo, base: n.llego, tono: "" },
-          { nombre: "En curso", valor: n.docCurso, base: n.doc, tono: "curso" },
-          { nombre: "Rechazado", valor: n.docRecha, base: n.doc, tono: "recha" },
-        ])}
-        <div class="embudo-par">
-          <div>
-            ${pasoEmbudo("Checks", n.checksOk, siguen(n.checksOk, n.checks), 100, [
-              { nombre: "En curso", valor: n.checksCurso, base: n.checks, tono: "curso" },
-              { nombre: "Sin tarea", valor: n.checksNo, base: n.docOk, tono: "" },
-            ])}
-          </div>
-          <div>
-            ${pasoEmbudo("Remodelación", n.remoOk, siguen(n.remoOk, n.remo), 100, [
-              { nombre: "En curso", valor: n.remoCurso, base: n.remo, tono: "curso" },
-              { nombre: "Rechazado", valor: n.remoRecha, base: n.remo, tono: "recha" },
-            ])}
-          </div>
-        </div>
-        ${pasoEmbudo("Pricing", n.pricingOk, siguen(n.pricingOk, n.pricing), anchoEmbudo(n.pricingOk, base), [
-          { nombre: "En curso", valor: n.pricingCurso, base: n.pricing, tono: "curso" },
-          { nombre: "Rechazado", valor: n.pricingRecha, base: n.pricing, tono: "recha" },
-          { nombre: "Sin tarea", valor: n.pricingSin, base: n.checksOk, tono: "" },
-        ])}
-        ${pasoEmbudo("Remo y pricing", n.finalizo, pctTxt(n.finalizo, n.llego) + " de los que llegaron", anchoEmbudo(n.finalizo, base), [])}
-        ${pasoEmbudo("Hesh", n.heshOk, siguen(n.heshOk, n.hesh), anchoEmbudo(n.heshOk, base), [
-          { nombre: "En curso", valor: n.heshCurso, base: n.hesh, tono: "curso" },
-          { nombre: "Sin tarea", valor: n.heshNo, base: n.docOk, tono: "" },
-        ])}
-        ${pasoEmbudo("Armado de precio", n.armadoOk, siguen(n.armadoOk, n.armado), anchoEmbudo(n.armadoOk, base), [
-          { nombre: "En curso", valor: n.armadoCurso, base: n.armado, tono: "curso" },
-          { nombre: "Rechazado", valor: n.armadoRecha, base: n.armado, tono: "recha" },
-          { nombre: "Sin inicial", valor: n.armadoSin, base: n.heshOk, tono: "" },
-        ])}
-        ${pasoEmbudo("Aprobología", n.aprobOk, siguen(n.aprobOk, n.aprob), anchoEmbudo(n.aprobOk, base), [
-          { nombre: "En curso", valor: n.aprobCurso, base: n.heshOk, tono: "curso" },
-          { nombre: "Rechazado", valor: n.aprobRecha, base: n.heshOk, tono: "recha" },
-          { nombre: "Sin tarea", valor: n.aprobSin, base: n.heshOk, tono: "" },
-        ])}
+    <div class="embudo-cajas dos">
+      ${caja("No recibido por orquestador", n.noLlego, n.envios, "muted")}
+      ${caja("Recibidos por el orquestador", n.llego, n.envios, "sigue")}
+    </div>
+    ${bloque("Documentos", [
+      caja("Sin tarea rev. documentos", n.docNo, n.llego, "muted"),
+      caja("Revisión de documentos", n.doc, n.llego, "etapa"),
+      caja("Rechazado", n.docRecha, n.doc, "recha"),
+      caja("En proceso", n.docCurso, n.doc, "curso"),
+      caja("Aprobado", n.docOk, n.doc, "ok"),
+    ].join(""))}
+    <div class="embudo-par">
+      ${bloque("Remodelación", [
+        caja("Revisión de remodelación", n.remo, n.docOk, "etapa"),
+        caja("Rechazado", n.remoRecha, n.remo, "recha"),
+        caja("En proceso", n.remoCurso, n.remo, "curso"),
+        caja("Aprobado", n.remoOk, n.remo, "ok"),
+      ].join(""))}
+      <div>
+        ${bloque("Checks", [
+          caja("Checks automáticos", n.checks, n.docOk, "etapa"),
+          caja("Aprobado", n.checksOk, n.checks, "ok"),
+          caja("En proceso", n.checksCurso, n.checks, "curso"),
+          caja("Sin tarea checks", n.checksNo, n.docOk, "muted"),
+        ].join(""))}
+        ${bloque("Pricing", [
+          caja("Pricing", n.pricing, n.checksOk, "etapa"),
+          caja("Aprobado", n.pricingOk, n.pricing, "ok"),
+          caja("En proceso", n.pricingCurso, n.pricing, "curso"),
+          caja("Rechazado", n.pricingRecha, n.pricing, "recha"),
+          caja("Sin tarea pricing", n.pricingSin, n.checksOk, "muted"),
+        ].join(""))}
       </div>
     </div>
-    <p class="embudo-nota">La barra verde es quien sigue, y se angosta porque cada etapa deja gente atrás. La pastilla dice cuántos se quedaron ahí: en curso, rechazado o sin tarea.</p>`;
+    ${bloque("Siguen las dos", caja("Aprobado remodelación y pricing", n.finalizo, n.docOk, "ok"))}
+    ${bloque("Hesh", [
+      caja("Hesh", n.hesh, n.finalizo, "etapa"),
+      caja("En proceso", n.heshCurso, n.hesh, "curso"),
+      caja("Aprobado", n.heshOk, n.hesh, "ok"),
+      caja("Sin tarea hesh", n.heshNo, n.finalizo, "muted"),
+    ].join(""))}
+    ${bloque("Armado de precio", [
+      caja("Armado de precio", n.armado, n.heshOk, "etapa"),
+      caja("Aprobado", n.armadoOk, n.armado, "ok"),
+      caja("En curso", n.armadoCurso, n.armado, "curso"),
+      caja("Rechazado", n.armadoRecha, n.armado, "recha"),
+      caja("Sin inicial", n.armadoSin, n.heshOk, "muted"),
+    ].join(""))}
+    ${bloque("Aprobología", [
+      caja("Aprobología", n.aprob, n.heshOk, "etapa"),
+      caja("Sin tarea aprobología", n.aprobSin, n.heshOk, "muted"),
+      caja("Rechazado", n.aprobRecha, n.heshOk, "recha"),
+      caja("En proceso", n.aprobCurso, n.heshOk, "curso"),
+      caja("Aprobado", n.aprobOk, n.heshOk, "ok"),
+    ].join(""))}
+    <p class="embudo-nota">Son las 36 cajas del funnel. La verde es la etapa o quien aprobó. La gris es quien no tiene tarea. La ámbar sigue en proceso y la roja fue rechazada. Si una da cero, igual se muestra.</p>`;
 }
 let relojFunnel = 0;
 let intentosFunnel = 0;

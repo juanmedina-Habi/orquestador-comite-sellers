@@ -151,7 +151,7 @@ function armarPaneles() {
     ${lista("funnel-propietario", "Propietario de aprobación")}
     ${lista("funnel-dueno", "Propietario del negocio")}
     <label class="filtro"><span>Nid</span><input id="funnel-nid" type="search" inputmode="numeric" placeholder="Buscar nid"></label>
-    <p class="nota-filtro"><b>Nota.</b> En Tableau este funnel abre sin país ni fechas fijas. Cada tarjeta cuenta nid con la misma condición de esa hoja.</p>
+    <p class="nota-filtro"><b>Nota.</b> Abre del 1 de junio de 2025 a hoy, como el funnel de Tableau. Cada caja es una hoja de ese tablero.</p>
   </div>`;
   document.getElementById("paneles").innerHTML = funnel +
     micro("documentos", "Cumplimiento Revisión Documentos", "Fecha de inicio: fecha de envío seller. Fecha de fin: fecha de aprobación o rechazo de la revisión de documentos.", "Fecha de envío seller.", "Aprobación o rechazo de la revisión de documentos. La barra usa esta fecha.")
@@ -227,6 +227,8 @@ function aplicarPredeterminados() {
   poner("sla-fin-hasta", hoy);
   marcarRadio("inmo-pais", "Mexico");
   poner("funnel-nid", "");
+  poner("funnel-envio-desde", "2025-06-01");
+  poner("funnel-envio-hasta", hoy);
 }
 function listaProvisional(id) {
   const root = document.getElementById(id);
