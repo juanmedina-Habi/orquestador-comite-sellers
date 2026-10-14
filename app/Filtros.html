@@ -161,13 +161,18 @@ function poner(id, valor) {
 function hoyISO() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
 }
-const PROPIETARIOS_TABLERO = [
-  "aprobologo1@habi.co", "aprobologo1@tuhabi.mx",
-  "aprobologo2@habi.co", "aprobologo2@tuhabi.mx",
-  "aprobologo3@habi.co", "aprobologo3@tuhabi.mx",
-  "aprobologo4@habi.co", "aprobologo4@tuhabi.mx",
-  "automatico@habi.com",
-];
+// En SLA, «(Sin aprobología)» son los casos que nunca llegaron a esa tarea.
+// Al abrir se marcan todos los propietarios menos ese, también los correos personales.
+const SIN_APROBOLOGIA = "(Sin aprobología)";
+function propietariosSla(valores) {
+  return valores.filter(v => v !== SIN_APROBOLOGIA);
+}
+function marcarPropietariosSla() {
+  const root = document.getElementById("sla-propietario");
+  if (!root) return;
+  const items = [...root.querySelectorAll("input[data-valor]")].map(x => x.dataset.valor);
+  marcarLista("sla-propietario", propietariosSla(items));
+}
 const PROPIETARIOS_APROBOLOGIA = [
   "aprobologo1@habi.co", "aprobologo1@tuhabi.mx",
   "aprobologo2@habi.co", "aprobologo2@tuhabi.mx",
@@ -211,7 +216,7 @@ function aplicarPredeterminados() {
   poner("fa-ini-hasta", hoy);
   poner("fa-fin-desde", "2025-05-26");
   poner("fa-fin-hasta", hoy);
-  marcarLista("sla-propietario", PROPIETARIOS_TABLERO);
+  marcarPropietariosSla();
   poner("sla-envio-desde", "2025-06-01");
   poner("sla-envio-hasta", hoy);
   poner("sla-fin-desde", "2025-06-04");
@@ -221,15 +226,15 @@ function aplicarPredeterminados() {
 function listaProvisional(id) {
   const root = document.getElementById(id);
   if (!root) return true;
-  const items = [...root.querySelectorAll("input[data-valor]")].map(x => x.dataset.valor);
-  if (!items.length) return true;
-  return items.length === PROPIETARIOS_TABLERO.length && PROPIETARIOS_TABLERO.every(p => items.indexOf(p) >= 0);
+  return !root.querySelector("input[data-valor]");
 }
 function pedidoActual() {
   const f = filtros();
   const lista = s => (s ? [...s] : []);
   let propietario = lista(f.propietario);
-  if (vistaId === "sla" && listaProvisional("sla-propietario")) propietario = PROPIETARIOS_TABLERO.slice();
+  if (vistaId === "sla" && listaProvisional("sla-propietario") && window.TABLAS && window.TABLAS.sla) {
+    propietario = propietariosSla(catalogoDe("sla").propietario || []);
+  }
   const listaAprob = document.getElementById("fa-propietario");
   const aprobSinLista = !listaAprob || !listaAprob.querySelector("input[data-valor]");
   if (vistaId === "aprobologia" && aprobSinLista) propietario = PROPIETARIOS_APROBOLOGIA.slice();

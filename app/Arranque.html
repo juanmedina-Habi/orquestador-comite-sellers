@@ -48,7 +48,7 @@ function instalarCatalogo(vista, cat) {
     llenarLista("sla-reintentos", cat.reintentos || []);
     if (prev.equipo) marcarLista("sla-equipo", prev.equipo);
     if (prev.propietario) marcarLista("sla-propietario", prev.propietario);
-    else if (eraInicial) marcarLista("sla-propietario", PROPIETARIOS_TABLERO);
+    else if (eraInicial) marcarPropietariosSla();
     if (prev.dueno) marcarLista("sla-dueno", prev.dueno);
     if (prev.respuesta) marcarLista("sla-respuesta", prev.respuesta);
     if (prev.reintentos) marcarLista("sla-reintentos", prev.reintentos);
@@ -238,7 +238,5 @@ document.querySelector(".filtros").addEventListener("change", e => {
   repintarDatos();
 });
 aplicarPredeterminados();
-llenarLista("sla-propietario", PROPIETARIOS_TABLERO);
-marcarLista("sla-propietario", PROPIETARIOS_TABLERO);
 arrancar();
 </script>
