@@ -162,16 +162,13 @@ function hoyISO() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
 }
 // En SLA, «(Sin aprobología)» son los casos que nunca llegaron a esa tarea.
-// Al abrir se marcan todos los propietarios menos ese, también los correos personales.
+// Al abrir se marcan todos los propietarios, también ese.
 const SIN_APROBOLOGIA = "(Sin aprobología)";
-function propietariosSla(valores) {
-  return valores.filter(v => v !== SIN_APROBOLOGIA);
-}
 function marcarPropietariosSla() {
   const root = document.getElementById("sla-propietario");
   if (!root) return;
   const items = [...root.querySelectorAll("input[data-valor]")].map(x => x.dataset.valor);
-  marcarLista("sla-propietario", propietariosSla(items));
+  marcarLista("sla-propietario", items);
 }
 const PROPIETARIOS_APROBOLOGIA = [
   "aprobologo1@habi.co", "aprobologo1@tuhabi.mx",
@@ -232,9 +229,6 @@ function pedidoActual() {
   const f = filtros();
   const lista = s => (s ? [...s] : []);
   let propietario = lista(f.propietario);
-  if (vistaId === "sla" && listaProvisional("sla-propietario") && window.TABLAS && window.TABLAS.sla) {
-    propietario = propietariosSla(catalogoDe("sla").propietario || []);
-  }
   const listaAprob = document.getElementById("fa-propietario");
   const aprobSinLista = !listaAprob || !listaAprob.querySelector("input[data-valor]");
   if (vistaId === "aprobologia" && aprobSinLista) propietario = PROPIETARIOS_APROBOLOGIA.slice();
