@@ -52,6 +52,8 @@ async function abrirSnapshot(b64) {
 }
 function prepararTablas() {
   window.INDICE = {};
+  const propSla = window.TABLAS.sla && window.TABLAS.sla.cols.propietario;
+  if (propSla) for (let i = 0; i < propSla.length; i++) if (!propSla[i]) propSla[i] = SIN_APROBOLOGIA;
   ["sla", "micro", "inmo"].forEach(nombre => {
     const t = window.TABLAS[nombre];
     if (!t) return;

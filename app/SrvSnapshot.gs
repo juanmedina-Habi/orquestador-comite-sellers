@@ -6,6 +6,7 @@
 
 var CARPETA_SNAPSHOTS = 'Orquestador Comité Sellers — snapshots';
 var TOPE_GZIP = 20 * 1024 * 1024;
+var SIN_APROBOLOGIA = '(Sin aprobología)';
 
 function setup() {
   var props = PropertiesService.getScriptProperties();
@@ -284,32 +285,43 @@ var BITS_FUNNEL = [
 
 var HORAS_FUNNEL = ['hora_envio', 'hora_doc', 'hora_remo', 'hora_checks', 'hora_pricing', 'hora_hesh', 'hora_aprob', 'hora_fin'];
 
+// La vista deja vacío el propietario de muchos casos que sí pasaron por aprobología.
+// Ahí se toma el agente de esa tarea en el micro SLA. Sin tarea queda SIN_APROBOLOGIA.
 function sqlSla_() {
   return [
+    'WITH aprob AS (',
+    '  SELECT',
+    '    CAST(nid AS STRING) AS nid,',
+    '    ARRAY_AGG(owner ORDER BY fecha_fin DESC LIMIT 1)[SAFE_OFFSET(0)] AS agente',
+    '  FROM `papyrus-delivery-data.idm_tech.micro_sla_orquestador`',
+    '  WHERE tipo_tarea = "Aprobologia" AND IFNULL(owner, "") != ""',
+    '  GROUP BY 1',
+    ')',
     'SELECT',
-    '  CAST(nid AS STRING) AS nid,',
-    '  IFNULL(pais_hubspot, "") AS pais,',
-    '  FORMAT_DATE("%F", DATE(fecha_envio_seller)) AS envio,',
-    '  FORMAT_DATE("%F", DATE(fecha_respuesta_orquestador)) AS fin,',
-    '  horas_habiles AS horas,',
-    '  IFNULL(propietario_de_aprobacion_final, "") AS propietario,',
-    '  IFNULL(equipo_sellers, "") AS equipo,',
-    '  IFNULL(propietario_del_negocio, "") AS dueno,',
+    '  CAST(s.nid AS STRING) AS nid,',
+    '  IFNULL(s.pais_hubspot, "") AS pais,',
+    '  FORMAT_DATE("%F", DATE(s.fecha_envio_seller)) AS envio,',
+    '  FORMAT_DATE("%F", DATE(s.fecha_respuesta_orquestador)) AS fin,',
+    '  s.horas_habiles AS horas,',
+    '  COALESCE(NULLIF(s.propietario_de_aprobacion_final, ""), a.agente, "' + SIN_APROBOLOGIA + '") AS propietario,',
+    '  IFNULL(s.equipo_sellers, "") AS equipo,',
+    '  IFNULL(s.propietario_del_negocio, "") AS dueno,',
     '  CASE',
-    '    WHEN LOWER(respuesta) = "inmueble aprobado" THEN "Aprobado"',
-    '    WHEN LOWER(respuesta) IN ("descartado", "descartado comite", "descartado por comité") THEN "Descartado"',
-    '    ELSE IFNULL(respuesta, "")',
+    '    WHEN LOWER(s.respuesta) = "inmueble aprobado" THEN "Aprobado"',
+    '    WHEN LOWER(s.respuesta) IN ("descartado", "descartado comite", "descartado por comité") THEN "Descartado"',
+    '    ELSE IFNULL(s.respuesta, "")',
     '  END AS respuesta,',
     '  CASE',
-    '    WHEN reintentos = 0 THEN "No tuvo Reintentos"',
-    '    WHEN reintentos IS NULL THEN ""',
+    '    WHEN s.reintentos = 0 THEN "No tuvo Reintentos"',
+    '    WHEN s.reintentos IS NULL THEN ""',
     '    ELSE "Tuvo Reintentos"',
     '  END AS reintentos,',
-    '  IFNULL(fase_rechazo, "") AS etapa',
-    'FROM `papyrus-delivery-data.idm_tech.sla_orquestador`',
-    'WHERE nid IS NOT NULL',
-    '  AND fecha_respuesta_orquestador IS NOT NULL',
-    '  AND DATE(fecha_respuesta_orquestador) <= CURRENT_DATE("America/Bogota")',
+    '  IFNULL(s.fase_rechazo, "") AS etapa',
+    'FROM `papyrus-delivery-data.idm_tech.sla_orquestador` s',
+    'LEFT JOIN aprob a ON a.nid = CAST(s.nid AS STRING)',
+    'WHERE s.nid IS NOT NULL',
+    '  AND s.fecha_respuesta_orquestador IS NOT NULL',
+    '  AND DATE(s.fecha_respuesta_orquestador) <= CURRENT_DATE("America/Bogota")',
   ].join('\n');
 }
 

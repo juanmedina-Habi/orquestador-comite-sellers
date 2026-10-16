@@ -25,9 +25,13 @@ function distintoCrudo(a, b) {
   if (!a || !b) return true;
   return a !== b;
 }
+// Las columnas usan nombres cortos: hub_doc, orq_aprob.
+function columnaArea(area) {
+  return { documentos: "doc", aprobologia: "aprob" }[area] || area;
+}
 function incArea(area, c, i) {
-  const hub = c["hub_" + (area === "aprobologia" ? "aprob" : area)];
-  const orq = c["orq_" + (area === "aprobologia" ? "aprob" : area)];
+  const hub = c["hub_" + columnaArea(area)];
+  const orq = c["orq_" + columnaArea(area)];
   if (area === "documentos") return grupoEstado(hub && hub[i], "No tiene respuesta") !== grupoEstado(orq && orq[i], "No tiene respuesta");
   if (area === "pricing") return grupoEstado(hub && hub[i], "No hay respuesta") !== grupoEstado(orq && orq[i], "No hay respuesta");
   if (area === "remo") return distintoCrudo(hub && hub[i], orq && orq[i]);
@@ -193,8 +197,8 @@ function pintarIncons() {
     if (foco === "Si" && marca !== true) return;
     if (foco === "No" && marca !== false) return;
     if (foco === "curso" && marca !== null) return;
-    const hubKey = area === "oportunidad" ? "oportunidad" : ("hub_" + (area === "aprobologia" ? "aprob" : area));
-    const orqKey = area === "oportunidad" ? "general" : ("orq_" + (area === "aprobologia" ? "aprob" : area));
+    const hubKey = area === "oportunidad" ? "oportunidad" : ("hub_" + columnaArea(area));
+    const orqKey = area === "oportunidad" ? "general" : ("orq_" + columnaArea(area));
     const hubTxt = area === "documentos" || area === "pricing" ? grupoEstado(c[hubKey][i], vacioHub) : textoEstado(c[hubKey][i], area === "oportunidad" ? "Aún en curso" : "Sin respuesta");
     const orqTxt = area === "documentos" || area === "pricing" ? grupoEstado(c[orqKey][i], vacioHub) : textoEstado(c[orqKey][i], area === "oportunidad" ? "Aún en curso" : "Sin respuesta");
     const etiq = marca === null ? "Aún en curso" : (marca ? "Sí" : "No");
@@ -311,7 +315,7 @@ function pintarRechazo() {
   const itemsMes = meses.map(mes => {
     const v = porMes.get(mes);
     const tasa = v.n ? (100 * v.rechazos / v.n) : 0;
-    return { id: mes, nombre: fechaCorta(mes).slice(3), n: v.n, texto: nf.format(v.n) + " · " + nf1.format(tasa) + "%" };
+    return { id: mes, nombre: etiquetaLarga(mes, "mes"), n: v.n, texto: nf.format(v.n) + " · " + nf1.format(tasa) + "%" };
   });
   const mesFoco = busqueda.rechazo.mes || "";
   const razonFoco = busqueda.rechazo.razon || "";
@@ -343,7 +347,7 @@ function pintarRechazo() {
     .sort((a, b) => b.n - a.n)
     .slice(0, 12);
   pagina.innerHTML = `<p class="resto-bloque">Volumen y tasa por mes</p>${barrasResto(itemsMes, "mes")}
-    <p class="resto-bloque">Razones de descarte${mesFoco ? " · " + esc(fechaCorta(mesFoco).slice(3)) : ""}</p>${barrasResto(itemsRazon, "razon")}
+    <p class="resto-bloque">Razones de descarte${mesFoco ? " · " + esc(etiquetaLarga(mesFoco, "mes")) : ""}</p>${barrasResto(itemsRazon, "razon")}
     <p class="resto-bloque">Detalle</p>${tablaResto(["Mes", "País", "Tipo", "Razón", "Línea", "Volumen", "Rechazos", "Tasa"], filas)}`;
 }
 function etapaInmo(v) {
