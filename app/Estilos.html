@@ -300,6 +300,10 @@
   .resto-tabla { width: 100%; border-collapse: collapse; font-size: 13px; }
   .resto-tabla th, .resto-tabla td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--linea); white-space: nowrap; }
   .resto-tabla th { color: var(--suave); font-weight: 600; position: sticky; top: 0; background: #fff; }
+  .matriz td { text-align: right; padding: 2px 4px; }
+  .matriz tbody th { color: var(--tinta); font-weight: 600; position: static; }
+  .matriz-celda { width: 100%; text-align: right; border: 1px solid var(--linea); background: #fff; border-radius: 6px; padding: 6px 10px; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
+  .matriz-celda:hover, .matriz-celda.activa { border-color: #7E22CE; background: #F5F3FF; }
   .resto-pag { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
   .resto-pag button { font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--linea); background: #fff; cursor: pointer; }
   .resto-pag button:disabled { opacity: .45; cursor: default; }

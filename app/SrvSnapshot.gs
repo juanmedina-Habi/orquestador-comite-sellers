@@ -143,6 +143,7 @@ function refreshSnapshots() {
     }
   });
   publicarMeta_(actualizado, tablas, errores);
+  try { programarResto_(); } catch (e3) {}
   if (errores.length) {
     props.setProperty('SNAP_ESTADO', 'error');
     props.setProperty('SNAP_ERROR', errores.join(' | '));
@@ -214,11 +215,12 @@ function getSnapshot(nombre) {
   var meta = leerMeta_();
   var info = (meta.tablas && meta.tablas[nombre]) || {};
   if (!info.fileId) return { error: info.error || 'Todavía no está el archivo del día.' };
-  var b64 = leerCacheSnap_(nombre, meta.actualizado);
+  // La clave lleva el archivo: el resto se vuelve a leer sin cambiar el sello del día.
+  var b64 = leerCacheSnap_(nombre, info.fileId);
   if (!b64) {
     var archivo = DriveApp.getFileById(info.fileId);
     b64 = Utilities.base64Encode(archivo.getBlob().getBytes());
-    guardarCacheSnap_(nombre, meta.actualizado, b64);
+    guardarCacheSnap_(nombre, info.fileId, b64);
   }
   return { b64: b64, filas: info.filas || 0, actualizado: meta.actualizado || '' };
 }
@@ -429,7 +431,7 @@ function refreshFunnel() {
 
 function especificacionesResto_() {
   return [
-    { nombre: 'incons', sql: sqlIncons_(), string: ['nid', 'pais', 'equipo', 'hub_doc', 'orq_doc', 'hub_pricing', 'orq_pricing', 'hub_remo', 'orq_remo', 'hub_hesh', 'orq_hesh', 'hub_aprob', 'orq_aprob', 'general', 'oportunidad'], fecha: ['envio'], numero: [] },
+    { nombre: 'incons', version: 3, sql: sqlIncons_(), string: ['nid', 'pais', 'equipo', 'hub_doc', 'orq_doc', 'hub_pricing', 'orq_pricing', 'hub_remo', 'orq_remo', 'hub_hesh', 'orq_hesh', 'hub_aprob', 'orq_aprob', 'general', 'oportunidad', 'av_doc', 'av_remo', 'av_checks', 'av_pricing', 'av_hesh', 'final', 'fase'], fecha: ['envio', 'resp_doc', 'resp_remo', 'resp_pricing', 'resp_hesh', 'resp_aprob', 'resp_oportunidad'], numero: [] },
     { nombre: 'actividad', sql: sqlActividad_(), string: ['grano', 'fecha', 'hora', 'pais'], fecha: [], numero: ['n'] },
     { nombre: 'rechazo', sql: sqlRechazo_(), string: ['mes', 'pais', 'tipo', 'razon', 'linea'], fecha: [], numero: ['n', 'rechazos'] },
     { nombre: 'inmo_full', sql: sqlInmoFull_(), string: ['nid', 'pais', 'orq', 'razon', 'estado', 'etapa', 'fase', 'hub'], fecha: ['envio'], numero: [] },
@@ -442,27 +444,33 @@ function restoListo_() {
   var meta = leerMeta_();
   var tablas = meta.tablas || {};
   return NOMBRES_RESTO.every(function (nombre) {
-    var info = tablas[nombre] || {};
-    return !!(info.fileId && !info.error);
+    return !!(tablas[nombre] || {}).fileId;
   });
 }
 
+// Una tabla del resto queda al día cuando se leyó hoy con la versión actual de su consulta.
+// Si falló hoy, espera a mañana: no reintenta en bucle.
 function restoPendiente_() {
   var meta = leerMeta_();
   var tablas = meta.tablas || {};
+  var hoy = hoyBogota();
   return especificacionesResto_().filter(function (spec) {
     var info = tablas[spec.nombre] || {};
-    return !info.fileId && !info.error;
+    return info.dia !== hoy || info.version !== (spec.version || 1);
   });
 }
 
 function restoAsentado_() {
-  var meta = leerMeta_();
-  var tablas = meta.tablas || {};
-  return NOMBRES_RESTO.every(function (nombre) {
-    var info = tablas[nombre] || {};
-    return !!(info.fileId || info.error);
-  });
+  return restoPendiente_().length === 0;
+}
+
+function programarResto_() {
+  if (!restoPendiente_().length) return;
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'refreshResto') return;
+  }
+  ScriptApp.newTrigger('refreshResto').timeBased().after(60 * 1000).create();
 }
 
 function prepararResto() {
@@ -499,12 +507,13 @@ function refreshResto() {
       while (!jobListo_(spec.ref) && Date.now() - inicio < 4 * 60 * 1000) Utilities.sleep(1500);
       if (!jobListo_(spec.ref)) throw new Error('BigQuery no terminó a tiempo');
       var viejo = tablas[spec.nombre] && tablas[spec.nombre].fileId;
-      tablas[spec.nombre] = guardarTabla_(spec);
+      tablas[spec.nombre] = Object.assign(guardarTabla_(spec), { dia: hoyBogota(), version: spec.version || 1 });
       if (viejo && viejo !== tablas[spec.nombre].fileId) {
         try { DriveApp.getFileById(viejo).setTrashed(true); } catch (e2) {}
       }
     } catch (e) {
-      tablas[spec.nombre] = Object.assign({}, tablas[spec.nombre], { error: String(e.message || e).slice(0, 240), fileId: '' });
+      // Conserva el archivo anterior: la página sigue mostrando la última lectura buena.
+      tablas[spec.nombre] = Object.assign({}, tablas[spec.nombre], { error: String(e.message || e).slice(0, 240), dia: hoyBogota(), version: spec.version || 1 });
     }
     var erroresPrevios = (meta.errores || []).filter(function (linea) {
       return NOMBRES_RESTO.every(function (nombre) { return linea.indexOf(nombre + ':') !== 0; });
@@ -534,17 +543,35 @@ function sqlIncons_() {
     '  FORMAT_DATE("%F", DATE(fecha_envio_seller)) AS envio,',
     '  IFNULL(equipo_sellers, "") AS equipo,',
     '  IFNULL(estado_hub_doc, "") AS hub_doc,',
-    '  IFNULL(estado_orquestador_doc, "") AS orq_doc,',
+    '  IFNULL(estado_orquestador_doc, "Nulo") AS orq_doc,',
     '  IFNULL(estado_hub_pricing, "") AS hub_pricing,',
-    '  IFNULL(estado_orquestador_pricing, "") AS orq_pricing,',
-    '  IFNULL(estado_hub_remo, "") AS hub_remo,',
-    '  IFNULL(estado_orquestador_remo, "") AS orq_remo,',
-    '  IFNULL(estado_hub_hesh, "") AS hub_hesh,',
-    '  IFNULL(estado_orquestador_hesh, "") AS orq_hesh,',
-    '  IFNULL(estado_hub_aprobologia, "") AS hub_aprob,',
-    '  IFNULL(estado_orquestador_aprobolgia, "") AS orq_aprob,',
-    '  IFNULL(estado_orquestador_general, "") AS general,',
-    '  IFNULL(estado_oprtunidad_de_negocio, "") AS oportunidad',
+    '  IFNULL(estado_orquestador_pricing, "Nulo") AS orq_pricing,',
+    '  IFNULL(estado_hub_remo, "Nulo") AS hub_remo,',
+    '  IFNULL(estado_orquestador_remo, "Nulo") AS orq_remo,',
+    '  IFNULL(estado_hub_hesh, "Nulo") AS hub_hesh,',
+    '  IFNULL(estado_orquestador_hesh, "Nulo") AS orq_hesh,',
+    '  IFNULL(estado_hub_aprobologia, "Nulo") AS hub_aprob,',
+    '  IFNULL(estado_orquestador_aprobolgia, "Nulo") AS orq_aprob,',
+    '  IFNULL(estado_orquestador_general, "Nulo") AS general,',
+    '  IFNULL(estado_oprtunidad_de_negocio, "Nulo") AS oportunidad,',
+    '  IF(flag_doc_avanza, "1", "") AS av_doc,',
+    '  IF(flag_remo_avanza, "1", "") AS av_remo,',
+    '  IF(flag_checks_avanza, "1", "") AS av_checks,',
+    '  IF(flag_pricing_avanza, "1", "") AS av_pricing,',
+    '  IF(flag_hesh_avanza, "1", "") AS av_hesh,',
+    // «Respuesta final» de la hoja Inconsistencia Respuesta Final de Tableau.
+    '  CASE',
+    '    WHEN estado_orquestador_aprobolgia = "COMPLETED" THEN "Aprobado"',
+    '    WHEN "REJECTED" IN (estado_orquestador_aprobolgia, estado_orquestador_hesh, estado_orquestador_pricing, estado_orquestador_remo, estado_orquestador_doc) THEN "Rechazado"',
+    '    ELSE "En progreso"',
+    '  END AS final,',
+    '  IFNULL(fase_rechazo, "") AS fase,',
+    '  FORMAT_DATE("%F", DATE(respuesta_doc_pais)) AS resp_doc,',
+    '  FORMAT_DATE("%F", DATE(respuesta_remo_pais)) AS resp_remo,',
+    '  FORMAT_DATE("%F", DATE(respuesta_pricing_pais)) AS resp_pricing,',
+    '  FORMAT_DATE("%F", DATE(respuesta_hesh_pais)) AS resp_hesh,',
+    '  FORMAT_DATE("%F", DATE(respuesta_aprobologia_pais)) AS resp_aprob,',
+    '  FORMAT_DATE("%F", DATE(fin_general)) AS resp_oportunidad',
     'FROM `papyrus-delivery-data.idm_tech.inconsistencias_orquestador`',
     'WHERE nid IS NOT NULL',
     '  AND (fecha_envio_seller IS NULL OR DATE(fecha_envio_seller) <= CURRENT_DATE("America/Bogota"))',
@@ -910,14 +937,14 @@ function resumenMeta_(meta) {
   return { actualizado: meta.actualizado, ok: meta.ok, filas: filas, errores: meta.errores || [] };
 }
 
-function guardarCacheSnap_(nombre, actualizado, b64) {
+function guardarCacheSnap_(nombre, clave, b64) {
   if (!b64 || b64.length > 8 * 1024 * 1024) return;
   var cache = CacheService.getScriptCache();
   var trozo = 90000;
   var n = Math.ceil(b64.length / trozo);
   var lote = {};
   var puestos = 0;
-  var base = claveSnap_(nombre, actualizado);
+  var base = claveSnap_(nombre, clave);
   function vaciar() {
     if (!puestos) return;
     cache.putAll(lote, 21600);
@@ -934,9 +961,9 @@ function guardarCacheSnap_(nombre, actualizado, b64) {
   vaciar();
 }
 
-function leerCacheSnap_(nombre, actualizado) {
+function leerCacheSnap_(nombre, clave) {
   var cache = CacheService.getScriptCache();
-  var base = claveSnap_(nombre, actualizado);
+  var base = claveSnap_(nombre, clave);
   var n = cache.get(base + '-n');
   if (!n) return '';
   var total = Number(n);
@@ -953,8 +980,8 @@ function leerCacheSnap_(nombre, actualizado) {
   return partes.join('');
 }
 
-function claveSnap_(nombre, actualizado) {
-  return 'orq-snap3-' + nombre + '-' + (actualizado || '0');
+function claveSnap_(nombre, clave) {
+  return 'orq-snap4-' + nombre + '-' + (clave || '0');
 }
 
 function emailUsuario_() {

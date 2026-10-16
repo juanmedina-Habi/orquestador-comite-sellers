@@ -271,7 +271,7 @@ document.getElementById("pestanas").addEventListener("click", e => {
   pedirRecorte(false);
 });
 document.getElementById("limpiar").addEventListener("click", () => {
-  VISTAS.forEach(v => { busqueda[v.id].periodo = ""; busqueda[v.id].pagina = 0; });
+  VISTAS.forEach(v => { busqueda[v.id].periodo = ""; busqueda[v.id].pagina = 0; busqueda[v.id].foco = ""; busqueda[v.id].focoTipo = ""; });
   busqueda.funnel.grupo = "";
   busqueda.funnel.paginaGrupo = 0;
   aplicarPredeterminados();

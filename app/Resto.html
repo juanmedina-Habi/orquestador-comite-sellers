@@ -14,83 +14,116 @@ const DIAS_SEMANA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Vier
 function esResto() {
   return RESTO_IDS.indexOf(vistaId) >= 0;
 }
+// La consulta deja "Nulo" donde BigQuery trae NULL: Tableau separa nulo de vacío.
+const NULO = "Nulo";
 function grupoEstado(v, vacio) {
-  if (!v) return vacio;
+  if (!v || v === NULO) return vacio;
   if (v === "COMPLETED") return "Aprobado";
   if (v === "IN_PROGRESS") return "En progreso";
   if (v === "REJECTED") return "Rechazado";
   return v;
 }
-function distintoCrudo(a, b) {
-  if (!a || !b) return true;
-  return a !== b;
-}
 // Las columnas usan nombres cortos: hub_doc, orq_aprob.
 function columnaArea(area) {
   return { documentos: "doc", aprobologia: "aprob" }[area] || area;
 }
+// Las fórmulas de «Inconsistencia» de cada hoja de Tableau. Documentos y Pricing comparan
+// los dos lados ya agrupados: Tableau compara el grupo de Hubspot con el estado en inglés y daba siempre Sí.
 function incArea(area, c, i) {
-  const hub = c["hub_" + columnaArea(area)];
-  const orq = c["orq_" + columnaArea(area)];
-  if (area === "documentos") return grupoEstado(hub && hub[i], "No tiene respuesta") !== grupoEstado(orq && orq[i], "No tiene respuesta");
-  if (area === "pricing") return grupoEstado(hub && hub[i], "No hay respuesta") !== grupoEstado(orq && orq[i], "No hay respuesta");
-  if (area === "remo") return distintoCrudo(hub && hub[i], orq && orq[i]);
+  const nulo = v => v === NULO;
+  if (area === "oportunidad") {
+    const g = c.general[i];
+    const o = c.oportunidad[i];
+    if (nulo(g) && nulo(o)) return true;
+    if (nulo(o)) return true;
+    if (nulo(g)) return null;
+    return g !== o;
+  }
+  const k = columnaArea(area);
+  const h = c["hub_" + k][i];
+  const o = c["orq_" + k][i];
+  if (area === "documentos") return grupoEstado(h, "No tiene respuesta") !== grupoEstado(o, "No tiene respuesta");
+  if (area === "pricing") return grupoEstado(h, "No hay respuesta") !== grupoEstado(o, "No hay respuesta");
+  if (area === "remo") return nulo(h) || nulo(o) || h !== o;
   if (area === "hesh") {
-    const h = hub && hub[i];
-    const o = orq && orq[i];
-    if (!h && !o) return false;
-    if (!h || !o) return true;
-    return h !== o;
+    if (nulo(h) && nulo(o)) return false;
+    return nulo(h) || nulo(o) || h !== o;
   }
-  if (area === "aprobologia") {
-    const h = hub && hub[i];
-    const o = orq && orq[i];
-    if (!o) return false;
-    if (!h) return true;
-    return h !== o;
-  }
-  const general = c.general[i];
-  const oportunidad = c.oportunidad[i];
-  if (!general && !oportunidad) return true;
-  if (!oportunidad && general) return true;
-  if (!general || !oportunidad) return null;
-  return general !== oportunidad;
+  if (nulo(h) && nulo(o)) return false;
+  if (nulo(o)) return false;
+  return nulo(h) || h !== o;
 }
-function textoEstado(v, vacio) {
-  return grupoEstado(v, vacio || "Sin respuesta");
+// Quién entra en cada área: los mismos filtros de las hojas de inconsistencias de Tableau.
+const ESTADOS_ORQ = [NULO, "COMPLETED", "IN_PROGRESS", "REJECTED"];
+function entraIncons(area, c, i) {
+  const avanza = k => !c["av_" + k] || c["av_" + k][i] === "1";
+  if (area === "documentos") return c.orq_doc[i] !== NULO;
+  if (area === "pricing") return avanza("doc") && avanza("checks") && ESTADOS_ORQ.indexOf(c.orq_pricing[i]) >= 0;
+  if (area === "remo") return avanza("doc");
+  if (area === "hesh") return avanza("doc") && avanza("checks") && avanza("pricing") && avanza("remo");
+  if (area === "aprobologia") {
+    return avanza("doc") && avanza("checks") && avanza("pricing") && avanza("remo") && avanza("hesh")
+      && ESTADOS_ORQ.indexOf(c.orq_aprob[i]) >= 0;
+  }
+  return !c.final || c.final[i] === "Aprobado" || c.final[i] === "Rechazado";
+}
+// Fila y columna de la matriz de Tableau: el estado del orquestador contra el de Hubspot.
+function ejesIncons(area, c, i) {
+  const vista = v => v || "(vacío)";
+  if (area === "oportunidad") return [c.final ? c.final[i] : "", vista(c.oportunidad[i])];
+  const k = columnaArea(area);
+  const hub = c["hub_" + k][i];
+  const col = area === "documentos" ? grupoEstado(hub, "No tiene respuesta")
+    : area === "pricing" ? grupoEstado(hub, "No hay respuesta")
+    : vista(hub);
+  return [vista(c["orq_" + k][i]), col];
 }
 function filasIncons() {
   const t = window.TABLAS && window.TABLAS.incons;
   if (!t) return null;
   const f = filtros();
+  const c = t.cols;
   const area = busqueda.incons.area || "documentos";
+  const resp = c["resp_" + columnaArea(area)];
+  const nid = val("incons-nid").trim();
   const idx = [];
   for (let i = 0; i < t.n; i++) {
-    if (f.pais && t.cols.pais[i] !== f.pais) continue;
-    if (!enRango(t.cols.envio[i], f.envioDesde, f.envioHasta)) continue;
+    if (!c.envio[i]) continue;
+    if (f.pais && c.pais[i] !== f.pais) continue;
+    if (!enRango(c.envio[i], f.envioDesde, f.envioHasta)) continue;
+    if (resp && (f.finDesde || f.finHasta) && !enRango(isoDeDia(resp[i]), f.finDesde, f.finHasta)) continue;
+    if (nid && String(c.nid[i]).indexOf(nid) === -1) continue;
+    if (!entraIncons(area, c, i)) continue;
     idx.push(i);
   }
   return { t: t, idx: idx, area: area };
 }
+// «Fase Actual» de Tableau, con las mismas banderas en el mismo orden.
 function faseDe(c, i) {
   const u = k => c[k] && c[k][i] === "1";
-  if (u("aprob_ok")) return "Finalizó";
-  if (u("rev_hesh") && u("aprob_curso")) return "Aprobología";
-  if (u("rev_remo") && u("hesh_curso")) return "Hesh";
-  if (u("rev_remo") && u("pricing_curso")) return "Pricing";
-  if (u("rev_doc") && u("remo_curso")) return "Remo";
+  if (u("aprob_ok") || u("aprob_recha") || u("doc_recha") || u("remo_recha") || u("pricing_recha")) return "Finalizó";
+  if (u("rev_aprob") && u("aprob_curso")) return "Aprobología";
+  if (u("rev_hesh") && u("hesh_curso")) return "Hesh";
+  if (u("rev_pricing") && u("pricing_curso")) return "Pricing";
+  if (u("rev_remo") && u("remo_curso")) return "Remo";
   if (u("rev_doc") && u("doc_curso")) return "Documentos";
   if (u("orq")) return "Entró al orquestador";
-  return "Sin fase";
+  return "";
 }
+// Como Tableau: solo los que entraron al orquestador y todavía no finalizan.
 function filasCurso() {
   const t = window.TABLAS && window.TABLAS.funnel;
   if (!t) return null;
   const f = filtros();
+  const c = t.cols;
+  const nid = val("curso-nid").trim();
   const idx = [];
   for (let i = 0; i < t.n; i++) {
-    if (f.pais && t.cols.pais[i] !== f.pais) continue;
-    if (!enRango(t.cols.envio[i], f.envioDesde, f.envioHasta)) continue;
+    if (c.orq[i] !== "1") continue;
+    if (f.pais && c.pais[i] !== f.pais) continue;
+    if (!enRango(c.envio[i], f.envioDesde, f.envioHasta)) continue;
+    if (nid && String(c.nid[i]).indexOf(nid) === -1) continue;
+    if (faseDe(c, i) === "Finalizó") continue;
     idx.push(i);
   }
   return { t: t, idx: idx };
@@ -176,6 +209,18 @@ function tituloResto() {
   document.getElementById("subtitulo").textContent = v.nota;
   ocultarOtras();
 }
+function matrizIncons(cuentas, filas, cols, titFila, titCol) {
+  const bag = busqueda.incons;
+  const head = cols.map(x => `<th>${esc(x)}</th>`).join("");
+  const body = filas.map(f => `<tr><th>${esc(f)}</th>${cols.map(x => {
+    const n = cuentas.get(f + "||" + x) || 0;
+    if (!n) return "<td></td>";
+    const id = f + "||" + x;
+    const activa = bag.focoTipo === "celda" && bag.foco === id ? " activa" : "";
+    return `<td><button type="button" class="matriz-celda${activa}" data-resto="celda" data-valor="${esc(id)}">${nf.format(n)}</button></td>`;
+  }).join("")}</tr>`).join("");
+  return `<div class="detalle-marco"><table class="resto-tabla matriz"><thead><tr><th>${esc(titFila)} ↓ · ${esc(titCol)} →</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
 function pintarIncons() {
   tituloResto();
   const pack = filasIncons();
@@ -183,41 +228,65 @@ function pintarIncons() {
   if (!pack) { pagina.innerHTML = avisoResto("incons"); return; }
   const area = pack.area;
   const c = pack.t.cols;
-  const vacioHub = area === "documentos" ? "No tiene respuesta" : "No hay respuesta";
+  const bag = busqueda.incons;
+  const resp = c["resp_" + columnaArea(area)];
+  const cuentas = new Map();
+  const filasM = new Set();
+  const colsM = new Set();
   let si = 0;
   let no = 0;
   let curso = 0;
   const filas = [];
+  // Oportunidad cuenta nid distintos en cada celda, como Tableau. Las demás áreas cuentan filas.
+  const vistos = area === "oportunidad" ? new Set() : null;
+  let total = 0;
+  const nids = new Set();
   pack.idx.forEach(i => {
+    const [fila, col] = ejesIncons(area, c, i);
+    const clave = fila + "||" + col;
+    if (vistos) {
+      if (vistos.has(clave + "#" + c.nid[i])) return;
+      vistos.add(clave + "#" + c.nid[i]);
+    }
+    total++;
+    nids.add(c.nid[i]);
+    cuentas.set(clave, (cuentas.get(clave) || 0) + 1);
+    filasM.add(fila);
+    colsM.add(col);
     const marca = incArea(area, c, i);
     if (marca === null) curso++;
     else if (marca) si++;
     else no++;
-    const foco = busqueda.incons.foco;
-    if (foco === "Si" && marca !== true) return;
-    if (foco === "No" && marca !== false) return;
-    if (foco === "curso" && marca !== null) return;
-    const hubKey = area === "oportunidad" ? "oportunidad" : ("hub_" + columnaArea(area));
-    const orqKey = area === "oportunidad" ? "general" : ("orq_" + columnaArea(area));
-    const hubTxt = area === "documentos" || area === "pricing" ? grupoEstado(c[hubKey][i], vacioHub) : textoEstado(c[hubKey][i], area === "oportunidad" ? "Aún en curso" : "Sin respuesta");
-    const orqTxt = area === "documentos" || area === "pricing" ? grupoEstado(c[orqKey][i], vacioHub) : textoEstado(c[orqKey][i], area === "oportunidad" ? "Aún en curso" : "Sin respuesta");
+    if (bag.focoTipo === "celda" && bag.foco !== clave) return;
+    if (bag.focoTipo === "marca") {
+      if (bag.foco === "Si" && marca !== true) return;
+      if (bag.foco === "No" && marca !== false) return;
+      if (bag.foco === "curso" && marca !== null) return;
+    }
     const etiq = marca === null ? "Aún en curso" : (marca ? "Sí" : "No");
     filas.push([
-      esc(fechaCorta(c.envio[i])),
       esc(c.nid[i]),
       esc(rotuloPais(c.pais[i])),
-      esc(c.equipo[i]),
-      esc(hubTxt),
-      esc(orqTxt),
+      esc(fechaCorta(c.envio[i])),
+      esc(resp ? fechaCorta(isoDeDia(resp[i])) : ""),
+      esc(fila),
+      esc(col),
       `<span class="${marca ? "no" : "si"}">${etiq}</span>`,
     ]);
   });
+  const orden = [...filasM].sort((a, b) => (a === "Nulo") - (b === "Nulo") || a.localeCompare(b, "es"));
+  const ordenCols = [...colsM].sort((a, b) => (a === "Nulo") - (b === "Nulo") || a.localeCompare(b, "es"));
   const chips = AREAS_INCONS.map(a => `<button type="button" data-area="${a.id}" class="${a.id === area ? "activa" : ""}">${esc(a.nombre)}</button>`).join("");
-  const kpi = (id, n, texto) => `<button type="button" class="resto-kpi${busqueda.incons.foco === id ? " activa" : ""}" data-resto="marca" data-valor="${id}"><b>${nf.format(n)}</b><span>${texto}</span></button>`;
+  const kpi = (id, n, texto) => `<button type="button" class="resto-kpi${bag.focoTipo === "marca" && bag.foco === id ? " activa" : ""}" data-resto="marca" data-valor="${id}"><b>${nf.format(n)}</b><span>${texto}</span></button>`;
+  const fechaResp = area === "oportunidad" ? "Fin general" : "Fecha de respuesta";
+  const titOrq = area === "oportunidad" ? "Respuesta final" : "Orquestador";
+  const titHub = area === "oportunidad" ? "Oportunidad de negocio" : "Hubspot";
   pagina.innerHTML = `<div class="resto-chips">${chips}</div>
-    <div class="resto-kpis">${kpi("Si", si, "No coinciden")}${kpi("No", no, "Coinciden")}${curso ? kpi("curso", curso, "Aún en curso") : ""}</div>
+    <div class="resto-kpis"><div class="resto-kpi"><b>${nf.format(vistos ? nids.size : total)}</b><span>Nid en el área</span></div>${kpi("Si", si, "No coinciden")}${kpi("No", no, "Coinciden")}${curso ? kpi("curso", curso, "Aún en curso") : ""}</div>
+    <p class="resto-bloque">${esc(titOrq)} contra ${esc(titHub)} · pulsa una cifra para ver esos nid</p>
+    ${matrizIncons(cuentas, orden, ordenCols, titOrq, titHub)}
     <p class="resto-bloque">Detalle</p>
-    ${tablaResto(["Fecha de envío", "Nid", "País", "Equipo", "Hubspot", "Orquestador", "Inconsistente"], filas)}`;
+    ${tablaResto(["Nid", "País", "Fecha de envío", fechaResp, titOrq, titHub, "Inconsistente"], filas)}`;
 }
 function pintarCurso() {
   tituloResto();
@@ -232,7 +301,7 @@ function pintarCurso() {
     fases.push({ i: i, fase: fase });
     cuentas.set(fase, (cuentas.get(fase) || 0) + 1);
   });
-  const orden = ["Finalizó", "Aprobología", "Hesh", "Pricing", "Remo", "Documentos", "Entró al orquestador", "Sin fase"];
+  const orden = ["Aprobología", "Hesh", "Pricing", "Remo", "Documentos", "Entró al orquestador"];
   const items = orden.filter(id => cuentas.has(id)).map(id => ({ id: id, nombre: id, n: cuentas.get(id) }));
   const foco = busqueda.curso.foco;
   const filas = fases.filter(x => !foco || x.fase === foco).map(x => [

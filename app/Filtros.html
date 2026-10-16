@@ -163,8 +163,19 @@ function armarPaneles() {
     <p class="nota-filtro">El volumen y la tasa salen por mes. Pulsa un mes para ver las razones.</p>
   </div>`;
   document.getElementById("paneles").innerHTML = funnel
-    + simple("incons", "Sí cuando el estado de Hubspot no coincide con el del orquestador.")
-    + simple("curso", "La fase sale de las mismas banderas del embudo.")
+    + `<div class="filtros-aprobologia panel-filtro" data-vista="incons" hidden>
+    <fieldset class="filtro"><legend>País</legend>${radios("incons-pais", pais)}</fieldset>
+    ${rango("incons-envio", "Fecha de Envío Seller", "Vacío deja todas las fechas, como en Tableau.")}
+    ${rango("incons-fin", "Fecha de respuesta del área", "Respuesta de la etapa elegida. En Oportunidad, el fin general.")}
+    <label class="filtro"><span>Nid</span><input id="incons-nid" type="search" inputmode="numeric" placeholder="Buscar nid"></label>
+    <p class="nota-filtro">Cada área cuenta los mismos nid que su hoja de Tableau. Sí cuando el estado de Hubspot no coincide con el del orquestador.</p>
+  </div>`
+    + `<div class="filtros-aprobologia panel-filtro" data-vista="curso" hidden>
+    <fieldset class="filtro"><legend>País</legend>${radios("curso-pais", pais)}</fieldset>
+    ${rango("curso-envio", "Fecha de Envío Seller", "Vacío deja todas las fechas, como en Tableau.")}
+    <label class="filtro"><span>Nid</span><input id="curso-nid" type="search" inputmode="numeric" placeholder="Buscar nid"></label>
+    <p class="nota-filtro">Negocios que entraron al orquestador y no han finalizado. La fase es la «Fase Actual» de Tableau.</p>
+  </div>`
     + `<div class="filtros-aprobologia panel-filtro" data-vista="actividad" hidden>
     <fieldset class="filtro"><legend>País</legend>${radios("actividad-pais", pais)}</fieldset>
     ${rango("actividad-envio", "Fecha de inicio", "Día en que empezó la revisión de remodelación.")}
@@ -249,7 +260,9 @@ function aplicarPredeterminados() {
   poner("funnel-nid", "");
   poner("funnel-envio-desde", "2025-06-01");
   poner("funnel-envio-hasta", hoy);
-  ["incons", "curso", "actividad"].forEach(id => {
+  poner("incons-nid", "");
+  poner("curso-nid", "");
+  ["actividad"].forEach(id => {
     poner(id + "-envio-desde", "2025-06-01");
     poner(id + "-envio-hasta", hoy);
   });
