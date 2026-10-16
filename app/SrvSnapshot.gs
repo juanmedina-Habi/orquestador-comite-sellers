@@ -434,7 +434,7 @@ function especificacionesResto_() {
     { nombre: 'incons', version: 3, sql: sqlIncons_(), string: ['nid', 'pais', 'equipo', 'hub_doc', 'orq_doc', 'hub_pricing', 'orq_pricing', 'hub_remo', 'orq_remo', 'hub_hesh', 'orq_hesh', 'hub_aprob', 'orq_aprob', 'general', 'oportunidad', 'av_doc', 'av_remo', 'av_checks', 'av_pricing', 'av_hesh', 'final', 'fase'], fecha: ['envio', 'resp_doc', 'resp_remo', 'resp_pricing', 'resp_hesh', 'resp_aprob', 'resp_oportunidad'], numero: [] },
     { nombre: 'actividad', sql: sqlActividad_(), string: ['grano', 'fecha', 'hora', 'pais'], fecha: [], numero: ['n'] },
     { nombre: 'rechazo', sql: sqlRechazo_(), string: ['mes', 'pais', 'tipo', 'razon', 'linea'], fecha: [], numero: ['n', 'rechazos'] },
-    { nombre: 'inmo_full', sql: sqlInmoFull_(), string: ['nid', 'pais', 'orq', 'razon', 'estado', 'etapa', 'fase', 'hub'], fecha: ['envio'], numero: [] },
+    { nombre: 'inmo_full', version: 2, sql: sqlInmoFull_(), string: ['nid', 'pais', 'pais_orq', 'orq', 'rev_doc', 'rev_pricing', 'rev_checks', 'doc_curso', 'doc_recha', 'doc_ok', 'pricing_curso', 'pricing_recha', 'pricing_ok', 'check_curso', 'check_recha', 'check_ok', 'comite', 'estado', 'razon', 'etapa', 'hub_raw', 'hub'], fecha: ['envio', 'inicio', 'fin', 'fin_general', 'resp_doc', 'resp_pricing', 'resp_check', 'fecha_hub'], numero: [] },
   ];
 }
 
@@ -627,32 +627,62 @@ function sqlRechazo_() {
   ].join('\n');
 }
 
+// Una fila por nid de inmobiliaria con las banderas de los tres tableros de Inmo de Tableau.
+// La vista ya no trae las banderas de aprobología ni flag_comite_curso: Checks hace de actividad final
+// en los dos países y «Orquestador en curso» usa flag_existe_al_menos_una_vez.
 function sqlInmoFull_() {
+  var orq = 'IFNULL(flag_orquestador, FALSE)';
+  var revDoc = orq + ' AND respuesta_doc_pais IS NOT NULL';
+  var revPricing = revDoc + ' AND respuesta_pricing_pais IS NOT NULL';
+  var revChecks = revPricing + ' AND respuesta_check_pais IS NOT NULL';
+  var envio = 'fecha_envio_seller';
+  var hoy = 'DATETIME(CURRENT_DATE("America/Bogota"))';
   return [
     'SELECT',
     '  CAST(nid AS STRING) AS nid,',
     '  IFNULL(pais_hubspot, "") AS pais,',
+    '  IFNULL(pais_orquestador, "") AS pais_orq,',
     '  FORMAT_DATE("%F", DATE(fecha_envio_seller)) AS envio,',
-    '  IF(IFNULL(flag_orquestador, FALSE), "Si", "No") AS orq,',
-    '  CASE',
-    '    WHEN IFNULL(flag_orquestador, FALSE) THEN "Happy Path"',
-    '    WHEN IFNULL(flag_existe_al_menos_una_vez, FALSE) THEN "Orquestador en curso"',
-    '    WHEN pais_hubspot = "Mexico" AND DATE(fecha_envio_seller) <= DATE "2025-10-06" THEN "Data de prueba"',
-    '    WHEN pais_hubspot = "Colombia" AND DATE(fecha_envio_seller) <= DATE "2025-10-27" THEN "Data de prueba"',
-    '    WHEN DATE(fecha_envio_seller) >= DATE_SUB(CURRENT_DATE("America/Bogota"), INTERVAL 1 DAY) THEN "Error de actualización"',
-    '    ELSE "Sin razón"',
-    '  END AS razon,',
+    '  FORMAT_DATE("%F", DATE(inicio_comite_pais)) AS inicio,',
+    '  FORMAT_DATE("%F", DATE(fin_comite_pais)) AS fin,',
+    '  FORMAT_DATE("%F", DATE(fin_general)) AS fin_general,',
+    '  FORMAT_DATE("%F", DATE(respuesta_doc_pais)) AS resp_doc,',
+    '  FORMAT_DATE("%F", DATE(respuesta_pricing_pais)) AS resp_pricing,',
+    '  FORMAT_DATE("%F", DATE(respuesta_check_pais)) AS resp_check,',
+    '  FORMAT_DATE("%F", DATE(IF(respuesta_hubspot IS NULL, NULL, fecha_respuesta_hubspot))) AS fecha_hub,',
+    '  ' + bit_(orq) + ' AS orq,',
+    '  ' + bit_(revDoc) + ' AS rev_doc,',
+    '  ' + bit_(revPricing) + ' AS rev_pricing,',
+    '  ' + bit_(revChecks) + ' AS rev_checks,',
+    '  ' + bit3_('flag_doc_estado_actual') + ' AS doc_curso,',
+    '  ' + bit3_('flag_doc_recha') + ' AS doc_recha,',
+    '  ' + bit3_('flag_doc_avanza') + ' AS doc_ok,',
+    '  ' + bit3_('flag_princing_estado_actual') + ' AS pricing_curso,',
+    '  ' + bit3_('flag_pricing_recha') + ' AS pricing_recha,',
+    '  ' + bit3_('flag_pricing_avanza') + ' AS pricing_ok,',
+    '  ' + bit3_('flag_check_estado_actual') + ' AS check_curso,',
+    '  ' + bit3_('flag_check_recha') + ' AS check_recha,',
+    '  ' + bit3_('flag_check_avanza') + ' AS check_ok,',
+    '  ' + bit_('estado_comite IS NOT NULL') + ' AS comite,',
     '  CASE',
     '    WHEN estado_comite = "COMPLETED" THEN "Finalizado"',
     '    WHEN IFNULL(flag_doc_recha, FALSE) OR IFNULL(flag_pricing_recha, FALSE) OR IFNULL(flag_check_recha, FALSE) THEN "Rechazado"',
-    '    WHEN IFNULL(flag_doc_estado_actual, FALSE) OR IFNULL(flag_princing_estado_actual, FALSE) OR IFNULL(flag_check_estado_actual, FALSE) THEN "En progreso"',
+    '    WHEN ' + revDoc + ' THEN "En progreso"',
     '    ELSE "Aún no iniciado"',
     '  END AS estado,',
+    '  CASE',
+    '    WHEN ' + orq + ' THEN "Happy Path"',
+    '    WHEN IFNULL(flag_existe_al_menos_una_vez, FALSE) THEN "Orquestador en curso"',
+    '    WHEN ' + envio + ' <= DATETIME "2025-10-06" AND pais_hubspot = "Mexico" THEN "Data de prueba"',
+    '    WHEN ' + envio + ' <= DATETIME "2025-10-27" AND pais_hubspot = "Colombia" THEN "Data de prueba"',
+    '    WHEN ' + envio + ' <= ' + hoy + ' AND ' + envio + ' >= DATETIME_SUB(' + hoy + ', INTERVAL 1 DAY) THEN "Error de actualización"',
+    '    ELSE "Sin razón"',
+    '  END AS razon,',
     '  IFNULL(etapa, "") AS etapa,',
-    '  IFNULL(fase_actual, "") AS fase,',
+    '  IFNULL(respuesta_hubspot, "") AS hub_raw,',
     '  CASE',
     '    WHEN respuesta_hubspot = "REJECTED" THEN "Rechazado"',
-    '    WHEN respuesta_hubspot IS NULL OR respuesta_hubspot = "" THEN "Sin respuesta"',
+    '    WHEN respuesta_hubspot IS NULL THEN "Sin Respuesta"',
     '    ELSE "Aprobado"',
     '  END AS hub',
     'FROM `papyrus-delivery-data.idm_tech.funnel_orquestador_inmo`',
@@ -663,6 +693,11 @@ function sqlInmoFull_() {
 
 function bit_(expr) {
   return 'IF(' + expr + ', 1, 0)';
+}
+
+// Como bit_, pero deja vacío el nulo: Tableau distingue «todo menos falso» de «verdadero».
+function bit3_(expr) {
+  return 'IF(' + expr + ' IS NULL, NULL, IF(' + expr + ', 1, 0))';
 }
 
 function segundos_(col) {

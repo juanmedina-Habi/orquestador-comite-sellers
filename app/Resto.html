@@ -1,6 +1,6 @@
 <script>
 /* El resto del tablero de Tableau: inconsistencias, fase, actividad de remo, rechazo e Inmo. */
-const RESTO_IDS = ["incons", "curso", "actividad", "rechazo", "inmo_tablero"];
+const RESTO_IDS = ["incons", "curso", "actividad", "rechazo", "inmo_tablero", "inmo_funnel", "inmo_incons"];
 const RESTO_ARCHIVOS = ["incons", "actividad", "rechazo", "inmo_full"];
 const AREAS_INCONS = [
   { id: "documentos", nombre: "Documentos" },
@@ -152,22 +152,11 @@ function filasRechazo() {
   }
   return { t: t, idx: idx };
 }
-function filasInmo() {
-  const t = window.TABLAS && window.TABLAS.inmo_full;
-  if (!t) return null;
-  const f = filtros();
-  const idx = [];
-  for (let i = 0; i < t.n; i++) {
-    if (f.pais && t.cols.pais[i] !== f.pais) continue;
-    if (!enRango(t.cols.envio[i], f.envioDesde, f.envioHasta)) continue;
-    idx.push(i);
-  }
-  return { t: t, idx: idx };
-}
 function activaResto(tipo, id) {
   const bag = busqueda[vistaId];
   if (vistaId === "rechazo" && tipo === "mes") return bag.mes === id;
   if (vistaId === "rechazo" && tipo === "razon") return bag.razon === id;
+  if (vistaId === "inmo_tablero" && (tipo === "mes" || tipo === "estado")) return bag[tipo] === id;
   return bag.focoTipo === tipo && bag.foco === id;
 }
 function barrasResto(items, tipo) {
@@ -210,7 +199,7 @@ function tituloResto() {
   ocultarOtras();
 }
 function matrizIncons(cuentas, filas, cols, titFila, titCol) {
-  const bag = busqueda.incons;
+  const bag = busqueda[vistaId];
   const head = cols.map(x => `<th>${esc(x)}</th>`).join("");
   const body = filas.map(f => `<tr><th>${esc(f)}</th>${cols.map(x => {
     const n = cuentas.get(f + "||" + x) || 0;
@@ -419,78 +408,14 @@ function pintarRechazo() {
     <p class="resto-bloque">Razones de descarte${mesFoco ? " · " + esc(etiquetaLarga(mesFoco, "mes")) : ""}</p>${barrasResto(itemsRazon, "razon")}
     <p class="resto-bloque">Detalle</p>${tablaResto(["Mes", "País", "Tipo", "Razón", "Línea", "Volumen", "Rechazos", "Tasa"], filas)}`;
 }
-function etapaInmo(v) {
-  if (v === "COMPLETED") return "Aprobado";
-  if (v === "IN_PROGRESS") return "En proceso";
-  if (v === "REJECTED") return "Rechazado";
-  return v || "Sin respuesta";
-}
-function pintarInmo() {
-  tituloResto();
-  const pack = filasInmo();
-  const pagina = document.getElementById("pagina");
-  if (!pack) { pagina.innerHTML = avisoResto("inmo_full"); return; }
-  const c = pack.t.cols;
-  let orq = 0;
-  const razones = new Map();
-  const estados = new Map();
-  const fases = new Map();
-  let coinciden = 0;
-  let noCoinciden = 0;
-  pack.idx.forEach(i => {
-    if (c.orq[i] === "Si") orq++;
-    razones.set(c.razon[i] || "Sin razón", (razones.get(c.razon[i] || "Sin razón") || 0) + 1);
-    estados.set(c.estado[i] || "Sin estado", (estados.get(c.estado[i] || "Sin estado") || 0) + 1);
-    const fase = c.fase[i] || "Sin fase";
-    fases.set(fase, (fases.get(fase) || 0) + 1);
-    if (c.hub[i] === etapaInmo(c.etapa[i])) coinciden++;
-    else noCoinciden++;
-  });
-  const total = pack.idx.length;
-  const cobertura = total ? nf1.format(100 * orq / total) + "%" : "—";
-  const aMapa = (map) => [...map.entries()].map(([id, n]) => ({ id: id, nombre: id, n: n })).sort((a, b) => b.n - a.n);
-  const focoTipo = busqueda.inmo_tablero.focoTipo;
-  const foco = busqueda.inmo_tablero.foco;
-  const filas = [];
-  pack.idx.forEach(i => {
-    const razon = c.razon[i] || "Sin razón";
-    const estado = c.estado[i] || "Sin estado";
-    const fase = c.fase[i] || "Sin fase";
-    if (focoTipo === "razon" && foco && razon !== foco) return;
-    if (focoTipo === "estado" && foco && estado !== foco) return;
-    if (focoTipo === "fase" && foco && fase !== foco) return;
-    const igual = c.hub[i] === etapaInmo(c.etapa[i]);
-    filas.push([
-      esc(fechaCorta(c.envio[i])),
-      esc(c.nid[i]),
-      esc(rotuloPais(c.pais[i])),
-      esc(c.orq[i]),
-      esc(razon),
-      esc(estado),
-      esc(fase),
-      esc(c.hub[i]),
-      esc(etapaInmo(c.etapa[i])),
-      `<span class="${igual ? "si" : "no"}">${igual ? "No" : "Sí"}</span>`,
-    ]);
-  });
-  pagina.innerHTML = `<div class="resto-kpis">
-      <div class="resto-kpi"><b>${nf.format(total)}</b><span>Envíos</span></div>
-      <div class="resto-kpi"><b>${nf.format(orq)}</b><span>En el orquestador</span></div>
-      <div class="resto-kpi"><b>${cobertura}</b><span>Cobertura</span></div>
-      <div class="resto-kpi"><b>${nf.format(noCoinciden)}</b><span>Inconsistencias Hubspot</span></div>
-      <div class="resto-kpi"><b>${nf.format(coinciden)}</b><span>Coinciden</span></div>
-    </div>
-    <p class="resto-bloque">Por qué no está en el orquestador</p>${barrasResto(aMapa(razones), "razon")}
-    <p class="resto-bloque">Estado del comité</p>${barrasResto(aMapa(estados), "estado")}
-    <p class="resto-bloque">Fase actual</p>${barrasResto(aMapa(fases).slice(0, 12), "fase")}
-    <p class="resto-bloque">Detalle</p>${tablaResto(["Fecha de envío", "Nid", "País", "Orquestador", "Razón", "Estado", "Fase", "Hubspot", "Respuesta", "Inconsistente"], filas)}`;
-}
 function pintarResto() {
   if (vistaId === "incons") pintarIncons();
   else if (vistaId === "curso") pintarCurso();
   else if (vistaId === "actividad") pintarActividad();
   else if (vistaId === "rechazo") pintarRechazo();
   else if (vistaId === "inmo_tablero") pintarInmo();
+  else if (vistaId === "inmo_funnel") pintarInmoFunnel();
+  else if (vistaId === "inmo_incons") pintarInmoIncons();
 }
 function restoFalta() {
   window.ERROR_RESTO = window.ERROR_RESTO || {};
@@ -557,6 +482,12 @@ document.getElementById("pagina").addEventListener("click", e => {
   const valor = b.dataset.valor;
   if (vistaId === "rechazo" && tipo === "mes") {
     bag.mes = bag.mes === valor ? "" : valor;
+    bag.pagina = 0;
+    pintarResto();
+    return;
+  }
+  if (vistaId === "inmo_tablero" && (tipo === "mes" || tipo === "estado")) {
+    bag[tipo] = bag[tipo] === valor ? "" : valor;
     bag.pagina = 0;
     pintarResto();
     return;

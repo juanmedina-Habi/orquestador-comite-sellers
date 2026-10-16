@@ -304,6 +304,13 @@
   .matriz tbody th { color: var(--tinta); font-weight: 600; position: static; }
   .matriz-celda { width: 100%; text-align: right; border: 1px solid var(--linea); background: #fff; border-radius: 6px; padding: 6px 10px; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
   .matriz-celda:hover, .matriz-celda.activa { border-color: #7E22CE; background: #F5F3FF; }
+  .inmo-funnel { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+  .inmo-col { display: flex; flex-direction: column; gap: 8px; }
+  .inmo-col .resto-kpi { min-width: 0; width: 100%; }
+  @media (max-width: 700px) { .inmo-funnel { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .tabla-mes tbody tr { cursor: pointer; }
+  .tabla-mes tbody tr:hover, .tabla-mes tbody tr.activa { background: #F5F3FF; }
+  .tabla-mes td:not(:first-child), .tabla-mes th:not(:first-child) { text-align: right; }
   .resto-pag { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
   .resto-pag button { font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--linea); background: #fff; cursor: pointer; }
   .resto-pag button:disabled { opacity: .45; cursor: default; }

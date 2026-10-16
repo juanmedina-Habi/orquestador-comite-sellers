@@ -106,6 +106,9 @@ function selectSiNo(id, etiqueta) {
     <select id="${id}"><option value="">(Todo)</option><option value="Si">Sí</option><option value="No">No</option></select>
   </label>`;
 }
+function selectSiNoSolo(id) {
+  return `<select id="${id}"><option value="">(Todo)</option><option value="Si">Sí</option><option value="No">No</option></select>`;
+}
 function lista(id, etiqueta) {
   return `<div class="filtro"><span>${etiqueta}</span>
     <details class="desplegable" id="${id}"><summary>(Todo)</summary><div class="desplegable-lista"></div></details>
@@ -181,7 +184,31 @@ function armarPaneles() {
     ${rango("actividad-envio", "Fecha de inicio", "Día en que empezó la revisión de remodelación.")}
     <p class="nota-filtro">El promedio por día de la semana y la mediana por hora salen de las revisiones de remodelación con documentos aprobados.</p>
   </div>`
-    + simple("inmo_tablero", "Abre en México. Cubre el funnel, la fase y la conversión de inmobiliaria.")
+    + `<div class="filtros-aprobologia panel-filtro" data-vista="inmo_tablero" hidden>
+    <fieldset class="filtro"><legend>País</legend>${radios("inmo_tablero-pais", pais)}</fieldset>
+    <fieldset class="filtro"><legend>¿No se creó el orquestador?</legend>${radios("inmo_tablero-nocreo", [{ v: "Si", t: "Sí" }, { v: "No", t: "No" }])}</fieldset>
+    ${rango("inmo_tablero-envio", "Fecha de Envío Seller", "Vacío deja todas las fechas, como en Tableau.")}
+    ${rango("inmo_tablero-fin", "Fin comité", "Cierre del comité de inmobiliaria.")}
+    ${lista("inmo_tablero-razon", "Razones de no estar")}
+    <p class="nota-filtro">Abre como Tableau: México y solo los envíos con orquestador creado. Pulsa un mes o un estado para filtrar.</p>
+  </div>`
+    + `<div class="filtros-aprobologia panel-filtro" data-vista="inmo_funnel" hidden>
+    <fieldset class="filtro"><legend>País</legend>${radios("inmo_funnel-pais", pais)}</fieldset>
+    ${rango("inmo_funnel-envio", "Fecha de Envío Seller", "Vacío deja todas las fechas, como en Tableau.")}
+    ${lista("inmo_funnel-estado", "Estado")}
+    <label class="filtro"><span>Inconsistencia creación revisión documentos</span>${selectSiNoSolo("inmo_funnel-incdoc")}</label>
+    <label class="filtro"><span>Inconsistencia creación pricing</span>${selectSiNoSolo("inmo_funnel-incpricing")}</label>
+    <label class="filtro"><span>Inconsistencia creación checks</span>${selectSiNoSolo("inmo_funnel-incchecks")}</label>
+    <label class="filtro"><span>Nid</span><input id="inmo_funnel-nid" type="search" inputmode="numeric" placeholder="Buscar nid"></label>
+    <p class="nota-filtro">Abre en México, como Tableau. Cada caja es una hoja de ese tablero.</p>
+  </div>`
+    + `<div class="filtros-aprobologia panel-filtro" data-vista="inmo_incons" hidden>
+    <fieldset class="filtro"><legend>País del orquestador</legend>${radios("inmo_incons-pais", pais)}</fieldset>
+    ${rango("inmo_incons-envio", "Fecha de Envío Seller", "Vacío deja todas las fechas, como en Tableau.")}
+    ${rango("inmo_incons-fin", "Fecha de respuesta HubSpot", "")}
+    <label class="filtro"><span>Nid</span><input id="inmo_incons-nid" type="search" inputmode="numeric" placeholder="Buscar nid"></label>
+    <p class="nota-filtro">Comités ya respondidos por el orquestador (COMPLETED o REJECTED). Abre en México, como Tableau.</p>
+  </div>`
     + rechazo +
     micro("documentos", "Cumplimiento Revisión Documentos", "Fecha de inicio: fecha de envío seller. Fecha de fin: fecha de aprobación o rechazo de la revisión de documentos.", "Fecha de envío seller.", "Aprobación o rechazo de la revisión de documentos. La barra usa esta fecha.")
     + micro("pricing", "Cumplimiento Pricing", "Fecha de inicio: fecha de aprobación de checks automáticos. Fecha de fin: fecha de aprobación o rechazo de Pricing, manual o automático.", "Aprobación de los checks automáticos.", "Aprobación o rechazo de Pricing. La barra usa esta fecha.")
@@ -267,6 +294,10 @@ function aplicarPredeterminados() {
     poner(id + "-envio-hasta", hoy);
   });
   marcarRadio("inmo_tablero-pais", "Mexico");
+  marcarRadio("inmo_tablero-nocreo", "No");
+  marcarRadio("inmo_funnel-pais", "Mexico");
+  marcarRadio("inmo_incons-pais", "Mexico");
+  ["inmo_funnel-nid", "inmo_incons-nid"].forEach(id => poner(id, ""));
   if (typeof resetDetalle === "function") resetDetalle();
 }
 function listaProvisional(id) {
