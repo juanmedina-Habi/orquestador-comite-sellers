@@ -197,6 +197,7 @@ function montarSeccionDetalle() {
       </div>
       <div class="filtros-aprobologia filtros-detalle">
         ${rango("det-envio", "Fecha de Envío Seller", "Del 1 de junio de 2025 a hoy, como en Tableau.")}
+        <label class="filtro"><span>País</span><select id="det-pais"><option value="">(Todo)</option><option value="Colombia">Colombia</option><option value="Mexico">México</option></select></label>
         <label class="filtro"><span>Estado comité</span><select id="det-estado"><option value="">(Todo)</option></select></label>
         ${selectSiNo("det-entro", "Entró al orquestador")}
         ${selectSiNo("det-inc-doc", "Inconsistencia rev. documentos")}
@@ -278,7 +279,7 @@ function resetDetalle() {
   document.getElementById("det-envio-hasta").value = hoyISO();
   document.getElementById("det-entro").value = "Si";
   document.getElementById("det-nid").value = "";
-  ["det-estado", "det-etapa", "det-inc-doc", "det-inc-checks", "det-inc-pricing", "det-inc-hesh", "det-inc-aprob"].forEach(id => {
+  ["det-pais", "det-estado", "det-etapa", "det-inc-doc", "det-inc-checks", "det-inc-pricing", "det-inc-hesh", "det-inc-aprob"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = "";
   });
@@ -349,6 +350,7 @@ function filasDetalle() {
   const estado = val("det-estado");
   const etapa = val("det-etapa");
   const nid = (val("det-nid") || "").trim();
+  const pais = val("det-pais");
   const equipo = marcas("det-equipo");
   const propietario = marcas("det-propietario");
   const dueno = marcas("det-dueno");
@@ -362,6 +364,7 @@ function filasDetalle() {
   const idx = [];
   for (let i = 0; i < t.n; i++) {
     if (!enRango(c.envio[i], desde, hasta)) continue;
+    if (pais && c.pais[i] !== pais) continue;
     if (entro) {
       const marca = c.entro ? c.entro[i] : (c.orq[i] === "1" ? "Si" : "No");
       if (marca !== entro) continue;

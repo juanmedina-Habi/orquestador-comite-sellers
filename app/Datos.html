@@ -155,6 +155,7 @@ function filaVisible(vista, t, i) {
     comite: c.comite ? c.comite[i] : "",
     estado: c.estado ? c.estado[i] : "",
     propietario: c.propietario ? c.propietario[i] : "",
+    reintentos: c.reintentos ? c.reintentos[i] : "",
   };
 }
 function paginaLocal(pedido, matches) {
@@ -203,14 +204,12 @@ function tablaExportLocal(pedido) {
   }
   const t = window.TABLAS[fuenteDe(pedido.vista)];
   const aprob = pedido.vista === "aprobologia";
-  const encabezado = aprob
-    ? ["Nid", "País", "Inicio", "Fin", "Horas hábiles", "Cumple", "Tiempo hábil", "Agente", "Comité en curso", "Estado", "Propietario"]
-    : ["Nid", "País", "Inicio", "Fin", "Horas hábiles", "Cumple", "Etapa", "Tipo"];
+  const extras = columnasExtra(pedido.vista);
+  const encabezado = ["Nid", "País", "Inicio", "Fin", "Horas hábiles", "Cumple"].concat(extras.map(x => x.t), aprob ? ["Propietario"] : []);
   const cuerpo = recorte.matches.map(i => {
     const f = filaVisible(pedido.vista, t, i);
-    return aprob
-      ? [f.nid, rotuloPais(f.pais), fechaCorta(f.inicio), fechaCorta(f.fin), f.horas == null ? "" : f.horas, f.cumple, tiempoHabil(f.horas), f.agente, f.comite, f.estado, f.propietario]
-      : [f.nid, rotuloPais(f.pais), fechaCorta(f.inicio), fechaCorta(f.fin), f.horas == null ? "" : f.horas, f.cumple, f.etapa, f.tipo];
+    return [f.nid, rotuloPais(f.pais), fechaCorta(f.inicio), fechaCorta(f.fin), f.horas == null ? "" : f.horas, f.cumple]
+      .concat(extras.map(x => x.v(f)), aprob ? [f.propietario] : []);
   });
   let nombre = "Orquestador " + pedido.vista;
   if (pedido.periodo) nombre += " " + pedido.periodo;
