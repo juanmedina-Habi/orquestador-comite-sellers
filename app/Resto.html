@@ -141,13 +141,35 @@ function filasActividad(grano) {
   }
   return { t: t, idx: idx };
 }
+// Primer mes de «los últimos N meses» de Tableau: el mes actual cuenta como uno.
+function mesDesde(n) {
+  const [a, m] = hoyISO().split("-").map(Number);
+  const d = new Date(Date.UTC(a, m - 1 - (n - 1), 1));
+  return d.toISOString().slice(0, 10);
+}
 function filasRechazo() {
   const t = window.TABLAS && window.TABLAS.rechazo;
   if (!t) return null;
+  const c = t.cols;
+  [["rechazo-tipo", "tipo"], ["rechazo-linea", "linea"], ["rechazo-razon", "etiqueta"]].forEach(([id, col]) => {
+    const raiz = document.getElementById(id);
+    if (raiz && !raiz.querySelector("input[data-valor]")) {
+      llenarLista(id, [...new Set(c[col])].map(v => v || "(vacío)").sort((a, b) => a.localeCompare(b, "es")));
+    }
+  });
   const f = filtros();
+  const meses = val("rechazo-meses");
+  const desde = meses ? mesDesde(Number(meses)) : "";
+  const tipos = marcas("rechazo-tipo");
+  const lineas = marcas("rechazo-linea");
+  const razones = marcas("rechazo-razon");
   const idx = [];
   for (let i = 0; i < t.n; i++) {
-    if (f.pais && t.cols.pais[i] !== f.pais) continue;
+    if (f.pais && c.pais[i] !== f.pais) continue;
+    if (desde && c.mes[i] < desde) continue;
+    if (tipos && !tipos.has(c.tipo[i] || "(vacío)")) continue;
+    if (lineas && !lineas.has(c.linea[i] || "(vacío)")) continue;
+    if (razones && !razones.has(c.etiqueta[i] || "(vacío)")) continue;
     idx.push(i);
   }
   return { t: t, idx: idx };
@@ -361,52 +383,57 @@ function pintarRechazo() {
   const pagina = document.getElementById("pagina");
   if (!pack) { pagina.innerHTML = avisoResto("rechazo"); return; }
   const c = pack.t.cols;
+  const bag = busqueda.rechazo;
+  const mesFoco = bag.mes || "";
+  const razonFoco = bag.razon || "";
   const porMes = new Map();
-  pack.idx.forEach(i => {
-    const mes = c.mes[i] || "";
-    const prev = porMes.get(mes) || { n: 0, rechazos: 0 };
-    prev.n += Number(c.n[i]) || 0;
-    prev.rechazos += Number(c.rechazos[i]) || 0;
-    porMes.set(mes, prev);
-  });
-  const meses = [...porMes.keys()].filter(Boolean).sort();
-  const itemsMes = meses.map(mes => {
-    const v = porMes.get(mes);
-    const tasa = v.n ? (100 * v.rechazos / v.n) : 0;
-    return { id: mes, nombre: etiquetaLarga(mes, "mes"), n: v.n, texto: nf.format(v.n) + " · " + nf1.format(tasa) + "%" };
-  });
-  const mesFoco = busqueda.rechazo.mes || "";
-  const razonFoco = busqueda.rechazo.razon || "";
   const porRazon = new Map();
+  const porEtiqueta = new Map();
+  let totalRech = 0;
   const filas = [];
   pack.idx.forEach(i => {
-    if (mesFoco && c.mes[i] !== mesFoco) return;
-    const razon = c.razon[i] || "(sin razón)";
-    const prev = porRazon.get(razon) || { n: 0, rechazos: 0 };
-    prev.n += Number(c.n[i]) || 0;
-    prev.rechazos += Number(c.rechazos[i]) || 0;
-    porRazon.set(razon, prev);
-    if (razonFoco && razon !== razonFoco) return;
     const n = Number(c.n[i]) || 0;
-    const rec = Number(c.rechazos[i]) || 0;
+    const rech = c.estado[i] === "REJECTED";
+    const m = porMes.get(c.mes[i]) || { n: 0, rech: 0 };
+    m.n += n;
+    if (rech) m.rech += n;
+    porMes.set(c.mes[i], m);
+    if (!rech || (mesFoco && c.mes[i] !== mesFoco)) return;
+    const razon = c.razon[i] || "(sin razón)";
+    const etiqueta = c.etiqueta[i] || "(sin razón)";
+    porRazon.set(razon, (porRazon.get(razon) || 0) + n);
+    porEtiqueta.set(etiqueta, (porEtiqueta.get(etiqueta) || 0) + n);
+    totalRech += n;
+    if (razonFoco && razon !== razonFoco) return;
     filas.push([
-      esc(fechaCorta(c.mes[i])),
+      esc(etiquetaLarga(c.mes[i], "mes")),
       esc(rotuloPais(c.pais[i])),
       esc(c.tipo[i]),
-      esc(razon),
       esc(c.linea[i]),
+      esc(razon),
+      esc(etiqueta),
       esc(nf.format(n)),
-      esc(nf.format(rec)),
-      esc(n ? nf1.format(100 * rec / n) + "%" : "—"),
     ]);
   });
-  const itemsRazon = [...porRazon.entries()]
-    .map(([id, v]) => ({ id: id, nombre: id, n: v.rechazos, texto: nf.format(v.rechazos) }))
-    .sort((a, b) => b.n - a.n)
-    .slice(0, 12);
-  pagina.innerHTML = `<p class="resto-bloque">Volumen y tasa por mes</p>${barrasResto(itemsMes, "mes")}
-    <p class="resto-bloque">Razones de descarte${mesFoco ? " · " + esc(etiquetaLarga(mesFoco, "mes")) : ""}</p>${barrasResto(itemsRazon, "razon")}
-    <p class="resto-bloque">Detalle</p>${tablaResto(["Mes", "País", "Tipo", "Razón", "Línea", "Volumen", "Rechazos", "Tasa"], filas)}`;
+  const meses = [...porMes.keys()].sort().reverse();
+  const filasMes = meses.map(mes => {
+    const v = porMes.get(mes);
+    const activa = mesFoco === mes ? " activa" : "";
+    return `<tr class="fila-mes${activa}" data-resto="mes" data-valor="${esc(mes)}"><td>${esc(etiquetaLarga(mes, "mes"))}</td><td>${nf.format(v.n - v.rech)}</td><td>${nf.format(v.rech)}</td><td>${nf.format(v.n)}</td><td>${v.n ? nf1.format(100 * v.rech / v.n) + "%" : "—"}</td></tr>`;
+  }).join("");
+  const itemsRazon = [...porRazon.entries()].map(([id, n]) => ({ id: id, nombre: id, n: n })).sort((a, b) => b.n - a.n);
+  let acumulado = 0;
+  const pareto = [...porEtiqueta.entries()].sort((a, b) => b[1] - a[1]).map(([id, n]) => {
+    acumulado += n;
+    return `<tr><td>${esc(id)}</td><td>${nf.format(n)}</td><td>${totalRech ? nf1.format(100 * n / totalRech) + "%" : "—"}</td><td>${totalRech ? nf1.format(100 * acumulado / totalRech) + "%" : "—"}</td></tr>`;
+  }).join("");
+  const cuando = mesFoco ? " · " + esc(etiquetaLarga(mesFoco, "mes")) : "";
+  pagina.innerHTML = `<p class="resto-bloque">Volumen de tareas y tasa de rechazo · pulsa un mes para ver sus razones</p>
+    <div class="detalle-marco"><table class="resto-tabla tabla-mes"><thead><tr><th>Mes de respuesta</th><th>Completadas</th><th>Rechazadas</th><th>Total</th><th>Tasa de rechazo</th></tr></thead><tbody>${filasMes || `<tr><td colspan="5">Sin tareas con estos filtros.</td></tr>`}</tbody></table></div>
+    <p class="resto-bloque">Razones de rechazo${cuando} · pulsa una razón para ver sus tareas</p>${barrasResto(itemsRazon, "razon")}
+    <p class="resto-bloque">Pareto de razones${cuando}</p>
+    <div class="detalle-marco"><table class="resto-tabla tabla-mes"><thead><tr><th>Razón</th><th>Rechazos</th><th>% del total</th><th>% acumulado</th></tr></thead><tbody>${pareto || `<tr><td colspan="4">Sin rechazos con estos filtros.</td></tr>`}</tbody></table></div>
+    <p class="resto-bloque">Detalle de rechazos</p>${tablaResto(["Mes", "País", "Tipo de tarea", "Línea", "Razón", "Etiqueta", "Tareas"], filas)}`;
 }
 function pintarResto() {
   if (vistaId === "incons") pintarIncons();

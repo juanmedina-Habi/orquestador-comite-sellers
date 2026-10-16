@@ -163,7 +163,13 @@ function armarPaneles() {
   </div>`;
   const rechazo = `<div class="filtros-aprobologia panel-filtro" data-vista="rechazo" hidden>
     <fieldset class="filtro"><legend>País</legend>${radios("rechazo-pais", pais)}</fieldset>
-    <p class="nota-filtro">El volumen y la tasa salen por mes. Pulsa un mes para ver las razones.</p>
+    <label class="filtro"><span>Fecha de respuesta de la tarea</span>
+      <select id="rechazo-meses"><option value="3">Últimos 3 meses</option><option value="6">Últimos 6 meses</option><option value="12">Últimos 12 meses</option><option value="">Todo</option></select>
+    </label>
+    ${lista("rechazo-tipo", "Tipo de tarea")}
+    ${lista("rechazo-linea", "Línea de negocio")}
+    ${lista("rechazo-razon", "Razón de rechazo")}
+    <p class="nota-filtro">Abre como Tableau: los últimos 6 meses, contando el actual. Cuenta nid por tarea respondida.</p>
   </div>`;
   document.getElementById("paneles").innerHTML = funnel
     + `<div class="filtros-aprobologia panel-filtro" data-vista="incons" hidden>
@@ -293,6 +299,7 @@ function aplicarPredeterminados() {
     poner(id + "-envio-desde", "2025-06-01");
     poner(id + "-envio-hasta", hoy);
   });
+  poner("rechazo-meses", "6");
   marcarRadio("inmo_tablero-pais", "Mexico");
   marcarRadio("inmo_tablero-nocreo", "No");
   marcarRadio("inmo_funnel-pais", "Mexico");

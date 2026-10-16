@@ -433,7 +433,7 @@ function especificacionesResto_() {
   return [
     { nombre: 'incons', version: 3, sql: sqlIncons_(), string: ['nid', 'pais', 'equipo', 'hub_doc', 'orq_doc', 'hub_pricing', 'orq_pricing', 'hub_remo', 'orq_remo', 'hub_hesh', 'orq_hesh', 'hub_aprob', 'orq_aprob', 'general', 'oportunidad', 'av_doc', 'av_remo', 'av_checks', 'av_pricing', 'av_hesh', 'final', 'fase'], fecha: ['envio', 'resp_doc', 'resp_remo', 'resp_pricing', 'resp_hesh', 'resp_aprob', 'resp_oportunidad'], numero: [] },
     { nombre: 'actividad', sql: sqlActividad_(), string: ['grano', 'fecha', 'hora', 'pais'], fecha: [], numero: ['n'] },
-    { nombre: 'rechazo', sql: sqlRechazo_(), string: ['mes', 'pais', 'tipo', 'razon', 'linea'], fecha: [], numero: ['n', 'rechazos'] },
+    { nombre: 'rechazo', version: 2, sql: sqlRechazo_(), string: ['mes', 'pais', 'tipo', 'estado', 'razon', 'etiqueta', 'linea'], fecha: [], numero: ['n'] },
     { nombre: 'inmo_full', version: 2, sql: sqlInmoFull_(), string: ['nid', 'pais', 'pais_orq', 'orq', 'rev_doc', 'rev_pricing', 'rev_checks', 'doc_curso', 'doc_recha', 'doc_ok', 'pricing_curso', 'pricing_recha', 'pricing_ok', 'check_curso', 'check_recha', 'check_ok', 'comite', 'estado', 'razon', 'etapa', 'hub_raw', 'hub'], fecha: ['envio', 'inicio', 'fin', 'fin_general', 'resp_doc', 'resp_pricing', 'resp_check', 'fecha_hub'], numero: [] },
   ];
 }
@@ -597,18 +597,31 @@ function sqlActividad_() {
   ].join('\n');
 }
 
+// La fuente de «Tablero de Razones de Rechazo Orquestador». «Tipo Tarea» es el grupo de Tableau
+// sobre el nombre de la tarea. Cuenta nid, como CNT(nid).
 function sqlRechazo_() {
   return [
     'WITH base AS (',
     '  SELECT',
+    '    SAFE_CAST(o.nid AS INT64) AS nid,',
     '    CASE WHEN o.country = "CO" THEN "Colombia" WHEN o.country = "MX" THEN "Mexico" ELSE "" END AS pais,',
     '    CASE',
     '      WHEN o.country = "CO" THEN DATETIME(o.workflow_steps_responses_created_at, "America/Bogota")',
     '      WHEN o.country = "MX" THEN DATETIME(o.workflow_steps_responses_created_at, "America/Mexico_City")',
     '    END AS respuesta,',
-    '    IFNULL(o.workflow_steps_responses_detail_task_type, "") AS tipo,',
+    '    CASE',
+    '      WHEN o.workflow_steps_name IN ("idm aprobologia", "idm inmo aprobologia automatica") THEN "Aprobologia"',
+    '      WHEN o.workflow_steps_name IN ("idm checks automatico", "idm inmo check") THEN "Check pricing"',
+    '      WHEN o.workflow_steps_name IN ("idm ensamble de precio", "idm hesh") THEN "Hesh - Ensamble"',
+    '      WHEN o.workflow_steps_name IN ("idm inmo pricing comite automatico", "idm inmo pricing comite manual", "idm pricing automatico", "idm pricing manual") THEN "Pricing"',
+    '      WHEN o.workflow_steps_name = "remo comite de remodelaciones" THEN "Remodelación"',
+    '      WHEN o.workflow_steps_name IN ("idm inmo revision de docs automatico", "idm inmo revision docs manual", "idm revision de documentos") THEN "Revisión de documento"',
+    '      WHEN o.workflow_steps_name = "sellers tarea de documentos" THEN "Sellers"',
+    '      ELSE IFNULL(o.workflow_steps_name, "")',
+    '    END AS tipo,',
     '    o.workflow_steps_responses_status AS estado,',
-    '    IFNULL(o.workflow_steps_responses_reason_for_discard_value, "(sin razón)") AS razon,',
+    '    IFNULL(o.workflow_steps_responses_reason_for_discard_value, "") AS razon,',
+    '    IFNULL(o.workflow_steps_responses_reason_for_discard_label, "") AS etiqueta,',
     '    IFNULL(o.workflow_alias, "") AS linea',
     '  FROM `im-main-prod.orchestrator.PricingCommittee` o',
     '  WHERE o.workflow_steps_responses_status IN ("REJECTED", "COMPLETED")',
@@ -617,13 +630,14 @@ function sqlRechazo_() {
     '  FORMAT_DATE("%Y-%m-01", DATE(respuesta)) AS mes,',
     '  pais,',
     '  tipo,',
+    '  estado,',
     '  razon,',
+    '  etiqueta,',
     '  linea,',
-    '  COUNT(*) AS n,',
-    '  COUNTIF(estado = "REJECTED") AS rechazos',
+    '  COUNT(nid) AS n',
     'FROM base',
-    'WHERE respuesta IS NULL OR DATE(respuesta) <= CURRENT_DATE("America/Bogota")',
-    'GROUP BY 1, 2, 3, 4, 5',
+    'WHERE respuesta IS NOT NULL AND DATE(respuesta) <= CURRENT_DATE("America/Bogota")',
+    'GROUP BY 1, 2, 3, 4, 5, 6, 7',
   ].join('\n');
 }
 

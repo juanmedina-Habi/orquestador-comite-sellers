@@ -39,7 +39,7 @@ function filasSeguimientoInmo() {
     if (noCreo === "Si" && bitInmo(c, "orq", i)) continue;
     if (!enRango(c.envio[i], f.envioDesde, f.envioHasta)) continue;
     if (!enRango(c.fin[i], f.finDesde, f.finHasta)) continue;
-    if (razones && razones.indexOf(c.razon[i]) < 0) continue;
+    if (razones && !razones.has(c.razon[i])) continue;
     idx.push(i);
   }
   return { t: t, idx: idx };
@@ -174,7 +174,7 @@ function filasFunnelInmo() {
   for (let i = 0; i < t.n; i++) {
     if (f.pais && c.pais[i] !== f.pais) continue;
     if (!enRango(c.envio[i], f.envioDesde, f.envioHasta)) continue;
-    if (estados && estados.indexOf(c.estado[i]) < 0) continue;
+    if (estados && !estados.has(c.estado[i])) continue;
     if (nid && String(c.nid[i]).indexOf(nid) === -1) continue;
     if (inc.doc || inc.pricing || inc.checks) {
       const x = incInmo(c, i);
