@@ -1,0 +1,306 @@
+<script>
+/* Los tres tableros de Inmo de Tableau: seguimiento, funnel e inconsistencias. Leen inmo_full. */
+const ESTADOS_INMO = ["Finalizado", "En progreso", "Rechazado", "Aún no iniciado"];
+function bitInmo(c, k, i) {
+  return c[k] && c[k][i] === "1";
+}
+function diaInmo(c, k, i) {
+  return c[k] ? isoDeDia(c[k][i]) : "";
+}
+function mesInmo(iso) {
+  return iso ? iso.slice(0, 7) + "-01" : "";
+}
+function pctInmo(n, d) {
+  return d ? nf1.format(100 * n / d) + "%" : "—";
+}
+function tablaInmo() {
+  return window.TABLAS && window.TABLAS.inmo_full;
+}
+function avisoInmo() {
+  return avisoResto("inmo_full");
+}
+function cajaInmo(id, titulo, n, pct, foco) {
+  const activa = foco === id ? " activa" : "";
+  return `<button type="button" class="resto-kpi${activa}" data-resto="caja" data-valor="${esc(id)}"><b>${nf.format(n)}</b><span>${esc(titulo)}${pct ? " · " + pct : ""}</span></button>`;
+}
+
+/* Seguimiento Inmo: «Tablero de Seguimiento Orquestador Inmo». */
+function filasSeguimientoInmo() {
+  const t = tablaInmo();
+  if (!t) return null;
+  const f = filtros();
+  const c = t.cols;
+  const noCreo = radio("inmo_tablero-nocreo");
+  const razones = marcas("inmo_tablero-razon");
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (f.pais && c.pais[i] !== f.pais) continue;
+    if (noCreo === "No" && !bitInmo(c, "orq", i)) continue;
+    if (noCreo === "Si" && bitInmo(c, "orq", i)) continue;
+    if (!enRango(c.envio[i], f.envioDesde, f.envioHasta)) continue;
+    if (!enRango(c.fin[i], f.finDesde, f.finHasta)) continue;
+    if (razones && !razones.has(c.razon[i])) continue;
+    idx.push(i);
+  }
+  return { t: t, idx: idx };
+}
+function pintarInmo() {
+  tituloResto();
+  const pagina = document.getElementById("pagina");
+  const t = tablaInmo();
+  if (!t) { pagina.innerHTML = avisoInmo(); return; }
+  const raiz = document.getElementById("inmo_tablero-razon");
+  if (raiz && !raiz.querySelector("input[data-valor]")) {
+    llenarLista("inmo_tablero-razon", [...new Set(t.cols.razon)].filter(Boolean).sort((a, b) => a.localeCompare(b, "es")));
+  }
+  const pack = filasSeguimientoInmo();
+  const c = t.cols;
+  const bag = busqueda.inmo_tablero;
+  const meses = new Map();
+  pack.idx.forEach(i => {
+    const mes = mesInmo(c.envio[i]) || "sin fecha";
+    const m = meses.get(mes) || { n: 0, orq: 0 };
+    m.n++;
+    if (bitInmo(c, "orq", i)) m.orq++;
+    meses.set(mes, m);
+  });
+  const filasMes = [...meses.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([mes, m]) => {
+    const activa = bag.mes === mes ? " activa" : "";
+    const nombre = mes === "sin fecha" ? "Sin fecha" : etiquetaLarga(mes, "mes");
+    return `<tr class="fila-mes${activa}" data-resto="mes" data-valor="${esc(mes)}"><td>${esc(nombre)}</td><td>${nf.format(m.n)}</td><td>${nf.format(m.orq)}</td><td>${nf.format(m.n - m.orq)}</td><td>${pctInmo(m.orq, m.n)}</td></tr>`;
+  }).join("");
+  // Tasas y fase: comités con estado, del mes elegido. El estado elegido acota las tasas y la tabla.
+  const enMes = i => !bag.mes || (mesInmo(c.envio[i]) || "sin fecha") === bag.mes;
+  const conComite = pack.idx.filter(i => enMes(i) && bitInmo(c, "comite", i));
+  const porEstado = new Map(ESTADOS_INMO.map(e => [e, 0]));
+  conComite.forEach(i => {
+    if (!bitInmo(c, "orq", i)) return;
+    porEstado.set(c.estado[i], (porEstado.get(c.estado[i]) || 0) + 1);
+  });
+  const baseTasa = conComite.filter(i => !bag.estado || c.estado[i] === bag.estado);
+  const creadosTasa = baseTasa.filter(i => bitInmo(c, "orq", i)).length;
+  const tasa = estado => pctInmo(baseTasa.filter(i => c.estado[i] === estado).length, creadosTasa);
+  const itemsEstado = ESTADOS_INMO.map(e => ({ id: e, nombre: e, n: porEstado.get(e) || 0 }));
+  const filas = [];
+  pack.idx.forEach(i => {
+    if (!enMes(i)) return;
+    if (bag.estado && c.estado[i] !== bag.estado) return;
+    filas.push([
+      esc(c.nid[i]),
+      esc(fechaCorta(c.envio[i])),
+      esc(fechaCorta(c.inicio[i])),
+      esc(fechaCorta(c.fin[i])),
+      esc(c.razon[i]),
+    ]);
+  });
+  pagina.innerHTML = `<p class="resto-bloque">Envíos a comité de inmobiliaria · pulsa un mes para filtrar</p>
+    <div class="detalle-marco"><table class="resto-tabla tabla-mes"><thead><tr><th>Mes de envío</th><th>Volumen de envíos</th><th>Orquestadores creados</th><th>Inconsistencias creación orquestadores</th><th>% de cobertura</th></tr></thead><tbody>${filasMes || `<tr><td colspan="5">Sin envíos con estos filtros.</td></tr>`}</tbody></table></div>
+    <p class="resto-bloque">Tasas de conversión${bag.mes ? " · " + esc(bag.mes === "sin fecha" ? "sin fecha" : etiquetaLarga(bag.mes, "mes")) : ""}</p>
+    <div class="resto-kpis">
+      <div class="resto-kpi"><b>${tasa("Finalizado")}</b><span>% Finalizado</span></div>
+      <div class="resto-kpi"><b>${tasa("En progreso")}</b><span>% En progreso</span></div>
+      <div class="resto-kpi"><b>${tasa("Rechazado")}</b><span>% Rechazado</span></div>
+      <div class="resto-kpi"><b>${tasa("Aún no iniciado")}</b><span>% Falta por iniciar</span></div>
+    </div>
+    <p class="resto-bloque">¿En qué fase van los comités? · orquestadores creados por estado</p>${barrasResto(itemsEstado, "estado")}
+    <p class="resto-bloque">Detalle</p>${tablaResto(["Nid", "Fecha de envío", "Inicio comité", "Fin comité", "Razones de no estar"], filas)}`;
+}
+
+/* Funnel Inmo: «Funnel Orquestador Seller Inmo». */
+const CAJAS_INMO = [
+  { etapa: "envios", titulo: "Envíos a comité" },
+  { etapa: "llego", titulo: "Llegó al orquestador" },
+  { etapa: "doc", titulo: "Revisión documentos" },
+  { etapa: "pricing", titulo: "Pricing" },
+  { etapa: "checks", titulo: "Checks" },
+];
+function incInmo(c, i) {
+  const orq = bitInmo(c, "orq", i);
+  return {
+    doc: orq && !bitInmo(c, "rev_doc", i) ? "Si" : "No",
+    pricing: orq && !bitInmo(c, "rev_pricing", i) && bitInmo(c, "doc_ok", i) ? "Si" : "No",
+    checks: orq && !bitInmo(c, "rev_checks", i) && bitInmo(c, "pricing_ok", i) ? "Si" : "No",
+  };
+}
+// Cada caja con su conjunto de nid, como los filtros de cada hoja de Tableau.
+// «En progreso» de Documentos y Pricing, y «Rechazado» de Pricing, son «todo menos falso»: dejan pasar el nulo.
+function cajasDe(c, i) {
+  const b = k => bitInmo(c, k, i);
+  const noFalso = k => c[k][i] !== "0";
+  const o = b("orq");
+  const rd = b("rev_doc");
+  const rp = b("rev_pricing");
+  const rc = b("rev_checks");
+  const da = b("doc_ok");
+  const pa = b("pricing_ok");
+  const doc = o && rd;
+  const pricing = doc && da && rp;
+  const checks = doc && da && pa && rp && rc;
+  const en = {
+    envios: true,
+    llego: o,
+    no_llego: !o,
+    doc: doc,
+    doc_no: o && !rd,
+    doc_curso: doc && noFalso("doc_curso"),
+    doc_recha: doc && b("doc_recha"),
+    doc_ok: doc && da,
+    pricing: pricing,
+    pricing_no: doc && da && !rp,
+    pricing_curso: pricing && noFalso("pricing_curso"),
+    pricing_recha: pricing && noFalso("pricing_recha"),
+    pricing_ok: pricing && pa,
+    checks: checks,
+    checks_no: doc && da && pa && rp && !rc,
+    checks_curso: checks && b("check_curso"),
+    checks_recha: checks && b("check_recha"),
+    checks_ok: checks && b("check_ok"),
+    // Denominadores de las medidas de porcentaje de Tableau.
+    den_pricing: doc && da,
+    den_pricing_micro: rp,
+    den_checks: doc && da && pa,
+  };
+  return Object.keys(en).filter(k => en[k]);
+}
+function filasFunnelInmo() {
+  const t = tablaInmo();
+  if (!t) return null;
+  const f = filtros();
+  const c = t.cols;
+  const estados = marcas("inmo_funnel-estado");
+  const nid = val("inmo_funnel-nid").trim();
+  const inc = { doc: val("inmo_funnel-incdoc"), pricing: val("inmo_funnel-incpricing"), checks: val("inmo_funnel-incchecks") };
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (f.pais && c.pais[i] !== f.pais) continue;
+    if (!enRango(c.envio[i], f.envioDesde, f.envioHasta)) continue;
+    if (estados && !estados.has(c.estado[i])) continue;
+    if (nid && String(c.nid[i]).indexOf(nid) === -1) continue;
+    if (inc.doc || inc.pricing || inc.checks) {
+      const x = incInmo(c, i);
+      if (inc.doc && x.doc !== inc.doc) continue;
+      if (inc.pricing && x.pricing !== inc.pricing) continue;
+      if (inc.checks && x.checks !== inc.checks) continue;
+    }
+    idx.push(i);
+  }
+  return { t: t, idx: idx };
+}
+function pintarInmoFunnel() {
+  tituloResto();
+  const pagina = document.getElementById("pagina");
+  const t = tablaInmo();
+  if (!t) { pagina.innerHTML = avisoInmo(); return; }
+  const raiz = document.getElementById("inmo_funnel-estado");
+  if (raiz && !raiz.querySelector("input[data-valor]")) llenarLista("inmo_funnel-estado", ESTADOS_INMO);
+  const pack = filasFunnelInmo();
+  const c = t.cols;
+  const bag = busqueda.inmo_funnel;
+  const n = new Map();
+  const deCaja = new Map();
+  pack.idx.forEach(i => {
+    cajasDe(c, i).forEach(k => {
+      n.set(k, (n.get(k) || 0) + 1);
+      if (bag.focoTipo === "caja" && bag.foco === k) deCaja.set(i, true);
+    });
+  });
+  const v = k => n.get(k) || 0;
+  const foco = bag.focoTipo === "caja" ? bag.foco : "";
+  const col = (titulo, cajas) => `<div class="inmo-col"><p class="resto-bloque">${esc(titulo)}</p>${cajas.join("")}</div>`;
+  const pDoc = v("doc");
+  const pPricing = v("pricing");
+  const pChecks = v("checks");
+  // Los porcentajes usan los mismos denominadores que las medidas de Tableau.
+  pagina.innerHTML = `<div class="inmo-funnel">
+      ${col("Envíos", [cajaInmo("envios", "Envíos a comité", v("envios"), "", foco)])}
+      ${col("Orquestador", [
+        cajaInmo("llego", "Llegó al orquestador", v("llego"), pctInmo(v("llego"), v("envios")), foco),
+        cajaInmo("no_llego", "No llegó al orquestador", v("no_llego"), pctInmo(v("no_llego"), v("envios")), foco),
+      ])}
+      ${col("Revisión documentos", [
+        cajaInmo("doc", "Revisión documentos", pDoc, pctInmo(pDoc, v("llego")), foco),
+        cajaInmo("doc_no", "No iniciado", v("doc_no"), pctInmo(v("doc_no"), v("llego")), foco),
+        cajaInmo("doc_curso", "En progreso", v("doc_curso"), pctInmo(v("doc_curso"), pDoc), foco),
+        cajaInmo("doc_recha", "Rechazado", v("doc_recha"), pctInmo(v("doc_recha"), pDoc), foco),
+        cajaInmo("doc_ok", "Aprobado", v("doc_ok"), pctInmo(v("doc_ok"), pDoc), foco),
+      ])}
+      ${col("Pricing", [
+        cajaInmo("pricing", "Pricing", pPricing, pctInmo(pPricing, v("den_pricing")), foco),
+        cajaInmo("pricing_no", "No iniciado", v("pricing_no"), pctInmo(v("pricing_no"), v("den_pricing")), foco),
+        cajaInmo("pricing_curso", "En progreso", v("pricing_curso"), pctInmo(v("pricing_curso"), v("den_pricing_micro")), foco),
+        cajaInmo("pricing_recha", "Rechazado", v("pricing_recha"), pctInmo(v("pricing_recha"), v("den_pricing_micro")), foco),
+        cajaInmo("pricing_ok", "Aprobado", v("pricing_ok"), pctInmo(v("pricing_ok"), v("den_pricing_micro")), foco),
+      ])}
+      ${col("Checks", [
+        cajaInmo("checks", "Checks", pChecks, pctInmo(pChecks, v("den_checks")), foco),
+        cajaInmo("checks_no", "No iniciado", v("checks_no"), pctInmo(v("checks_no"), v("den_checks")), foco),
+        cajaInmo("checks_curso", "En progreso", v("checks_curso"), pctInmo(v("checks_curso"), pChecks), foco),
+        cajaInmo("checks_recha", "Rechazado", v("checks_recha"), pctInmo(v("checks_recha"), pChecks), foco),
+        cajaInmo("checks_ok", "Aprobado", v("checks_ok"), pctInmo(v("checks_ok"), pChecks), foco),
+      ])}
+    </div>
+    <p class="resto-bloque">Tabla de envíos${foco ? " · " + esc(foco) : ""} · pulsa una caja para filtrar</p>
+    ${tablaResto(["Nid", "Inicio comité", "Razón", "Rev. documentos", "Pricing", "Checks"],
+      pack.idx.filter(i => !foco || deCaja.has(i)).map(i => [
+        esc(c.nid[i]),
+        esc(fechaCorta(c.inicio[i])),
+        esc(c.razon[i]),
+        esc(fechaCorta(diaInmo(c, "resp_doc", i))),
+        esc(fechaCorta(diaInmo(c, "resp_pricing", i))),
+        esc(fechaCorta(diaInmo(c, "resp_check", i))),
+      ]))}`;
+}
+
+/* Inconsistencias Inmo: «Inconsistencias Orquestador Inmo Mex». */
+function filasInconsInmo() {
+  const t = tablaInmo();
+  if (!t) return null;
+  const f = filtros();
+  const c = t.cols;
+  const nid = val("inmo_incons-nid").trim();
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (!bitInmo(c, "comite", i) || !bitInmo(c, "orq", i)) continue;
+    if (c.etapa[i] !== "COMPLETED" && c.etapa[i] !== "REJECTED") continue;
+    if (f.pais && c.pais_orq[i] !== f.pais) continue;
+    if (!enRango(c.envio[i], f.envioDesde, f.envioHasta)) continue;
+    if ((f.finDesde || f.finHasta) && !enRango(diaInmo(c, "fecha_hub", i), f.finDesde, f.finHasta)) continue;
+    if (nid && String(c.nid[i]).indexOf(nid) === -1) continue;
+    idx.push(i);
+  }
+  return { t: t, idx: idx };
+}
+function pintarInmoIncons() {
+  tituloResto();
+  const pagina = document.getElementById("pagina");
+  const pack = filasInconsInmo();
+  if (!pack) { pagina.innerHTML = avisoInmo(); return; }
+  const c = pack.t.cols;
+  const bag = busqueda.inmo_incons;
+  // Tableau cuenta nid distintos en cada celda.
+  const vistos = new Set();
+  const cuentas = new Map();
+  const filas = [];
+  pack.idx.forEach(i => {
+    const clave = c.hub[i] + "||" + c.etapa[i];
+    if (vistos.has(clave + "#" + c.nid[i])) return;
+    vistos.add(clave + "#" + c.nid[i]);
+    cuentas.set(clave, (cuentas.get(clave) || 0) + 1);
+    if (bag.focoTipo === "celda" && bag.foco !== clave) return;
+    filas.push([
+      esc(c.nid[i]),
+      esc(c.etapa[i]),
+      esc(c.hub_raw[i] || "Nulo"),
+      esc(fechaCorta(c.envio[i])),
+      esc(fechaCorta(diaInmo(c, "fin_general", i))),
+      esc(fechaCorta(diaInmo(c, "fecha_hub", i))),
+    ]);
+  });
+  const filasM = ["Aprobado", "Rechazado", "Sin Respuesta"].filter(h => ["COMPLETED", "REJECTED"].some(e => cuentas.has(h + "||" + e)));
+  const colsM = ["COMPLETED", "REJECTED"].filter(e => filasM.some(h => cuentas.has(h + "||" + e)));
+  pagina.innerHTML = `<p class="resto-bloque">Respuesta HubSpot contra respuesta del orquestador · pulsa una cifra para ver esos nid</p>
+    ${matrizIncons(cuentas, filasM, colsM, "Respuesta HubSpot", "Orquestador")}
+    <p class="resto-bloque">Detalle</p>
+    ${tablaResto(["Nid", "Respuesta orquestador", "Respuesta HubSpot", "Fecha de envío", "Fin general", "Fecha de respuesta HubSpot"], filas)}`;
+}
+</script>

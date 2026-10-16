@@ -143,6 +143,7 @@ function refreshSnapshots() {
     }
   });
   publicarMeta_(actualizado, tablas, errores);
+  try { programarResto_(); } catch (e3) {}
   if (errores.length) {
     props.setProperty('SNAP_ESTADO', 'error');
     props.setProperty('SNAP_ERROR', errores.join(' | '));
@@ -189,6 +190,8 @@ function estadoPublico_() {
     listo: snapshotListo_(),
     corriendo: refreshEnCurso_(),
     hora: '7:00',
+    funnel: funnelListo_(),
+    funnelError: props.getProperty('FUNNEL_ERROR') || '',
     errorRefresh: props.getProperty('SNAP_ERROR') || '',
     errores: meta.errores || [],
   };
@@ -208,15 +211,16 @@ function getBootstrap() {
 
 function getSnapshot(nombre) {
   if (!usuarioPermitido_()) return { error: 'Sin acceso' };
-  if (['sla', 'micro', 'inmo'].indexOf(nombre) < 0) return { error: 'Tabla desconocida' };
+  if (['sla', 'micro', 'inmo', 'funnel', 'incons', 'actividad', 'rechazo', 'inmo_full'].indexOf(nombre) < 0) return { error: 'Tabla desconocida' };
   var meta = leerMeta_();
   var info = (meta.tablas && meta.tablas[nombre]) || {};
-  if (!info.fileId) return { error: 'Todavía no está el archivo del día.' };
-  var b64 = leerCacheSnap_(nombre, meta.actualizado);
+  if (!info.fileId) return { error: info.error || 'Todavía no está el archivo del día.' };
+  // La clave lleva el archivo: el resto se vuelve a leer sin cambiar el sello del día.
+  var b64 = leerCacheSnap_(nombre, info.fileId);
   if (!b64) {
     var archivo = DriveApp.getFileById(info.fileId);
     b64 = Utilities.base64Encode(archivo.getBlob().getBytes());
-    guardarCacheSnap_(nombre, meta.actualizado, b64);
+    guardarCacheSnap_(nombre, info.fileId, b64);
   }
   return { b64: b64, filas: info.filas || 0, actualizado: meta.actualizado || '' };
 }
@@ -266,8 +270,22 @@ function especificaciones_() {
     { nombre: 'sla', sql: sqlSla_(), string: ['nid', 'pais', 'propietario', 'equipo', 'dueno', 'respuesta', 'reintentos', 'etapa'], fecha: ['envio', 'fin'], numero: ['horas'] },
     { nombre: 'micro', sql: sqlMicro_(), string: ['vista', 'nid', 'pais', 'comite', 'agente', 'propietario', 'estado', 'tipo'], fecha: ['envio', 'inicio', 'fin'], numero: ['horas'] },
     { nombre: 'inmo', sql: sqlInmo_(), string: ['nid', 'pais', 'etapa', 'automatizacion'], fecha: ['envio', 'fin'], numero: ['horas'] },
+    { nombre: 'funnel', version: 5, sql: sqlFunnel_(), string: ['nid', 'pais', 'equipo', 'propietario', 'dueno', 'estado', 'etapa', 'entro', 'grupo', 'inc_doc', 'inc_checks', 'inc_pricing', 'inc_hesh', 'inc_aprob'], fecha: ['envio', 'fecha_doc', 'fecha_remo', 'fecha_checks', 'fecha_pricing', 'fecha_hesh', 'fecha_aprob', 'fin', 'fecha_respuesta'], numero: BITS_FUNNEL.concat(HORAS_FUNNEL) },
   ];
 }
+
+var BITS_FUNNEL = [
+  'orq', 'rev_doc', 'doc_ok', 'doc_curso', 'doc_recha',
+  'rev_checks', 'checks_ok', 'checks_curso',
+  'rev_pricing', 'pricing_ok', 'pricing_curso', 'pricing_recha',
+  'rev_remo', 'remo_ok', 'remo_curso', 'remo_recha',
+  'rev_hesh', 'hesh_ok', 'hesh_curso',
+  'rev_armado', 'armado_ok', 'armado_curso', 'armado_recha',
+  'rev_aprob', 'aprob_ok', 'aprob_curso', 'aprob_recha',
+  'comite_curso', 'envio_pasado',
+];
+
+var HORAS_FUNNEL = ['hora_envio', 'hora_doc', 'hora_remo', 'hora_checks', 'hora_pricing', 'hora_hesh', 'hora_aprob', 'hora_fin'];
 
 // La vista deja vacío el propietario de muchos casos que sí pasaron por aprobología.
 // Ahí se toma el agente de esa tarea en el micro SLA. Sin tarea queda SIN_APROBOLOGIA.
@@ -343,6 +361,471 @@ function sqlMicro_() {
   ].join('\n');
 }
 
+function funnelListo_() {
+  var meta = leerMeta_();
+  var info = (meta.tablas && meta.tablas.funnel) || {};
+  return !!(info.fileId && !info.error && Number(info.version) >= 5);
+}
+
+function funnelEnCurso_() {
+  var desde = Number(PropertiesService.getScriptProperties().getProperty('FUNNEL_DESDE') || '0');
+  return !!desde && (Date.now() - desde) < 8 * 60 * 1000;
+}
+
+function prepararFunnel() {
+  assertAllowed_();
+  if (funnelListo_()) return { listo: true };
+  if (!isOwner_()) return { listo: false };
+  if (funnelEnCurso_()) return { listo: false, corriendo: true };
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'refreshFunnel') ScriptApp.deleteTrigger(t);
+  });
+  try {
+    PropertiesService.getScriptProperties().setProperty('FUNNEL_DESDE', String(Date.now()));
+    ScriptApp.newTrigger('refreshFunnel').timeBased().after(60 * 1000).create();
+  } catch (e) {
+    PropertiesService.getScriptProperties().deleteProperty('FUNNEL_DESDE');
+    return { error: 'No se pudo dejar la lectura del funnel en segundo plano.' };
+  }
+  return { listo: false, corriendo: true };
+}
+
+function refreshFunnel() {
+  var lock = null;
+  var props = PropertiesService.getScriptProperties();
+  try {
+    if (!puedeRefrescar_()) return;
+    props.setProperty('FUNNEL_DESDE', String(Date.now()));
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) return;
+    var spec = null;
+    especificaciones_().forEach(function (s) { if (s.nombre === 'funnel') spec = s; });
+    spec.ref = lanzarConsulta_(spec.sql);
+    var inicio = Date.now();
+    while (!jobListo_(spec.ref) && Date.now() - inicio < 3.5 * 60 * 1000) Utilities.sleep(1500);
+    if (!jobListo_(spec.ref)) throw new Error('BigQuery no terminó a tiempo');
+    props.deleteProperty('FUNNEL_ERROR');
+    var meta = leerMeta_();
+    var tablas = meta.tablas || {};
+    var viejo = tablas.funnel && tablas.funnel.fileId;
+    var info = guardarTabla_(spec);
+    tablas.funnel = info;
+    publicarMeta_(selloBogota(), tablas, meta.errores || []);
+    if (viejo && viejo !== info.fileId) {
+      try { DriveApp.getFileById(viejo).setTrashed(true); } catch (e2) {}
+    }
+  } catch (e) {
+    props.setProperty('FUNNEL_ERROR', String(e.message || e).slice(0, 280));
+    var metaError = leerMeta_();
+    var tablasError = metaError.tablas || {};
+    tablasError.funnel = Object.assign({}, tablasError.funnel, { error: e.message });
+    publicarMeta_(metaError.actualizado || selloBogota(), tablasError, metaError.errores || []);
+  } finally {
+    props.deleteProperty('FUNNEL_DESDE');
+    if (lock) { try { lock.releaseLock(); } catch (e3) {} }
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      if (t.getHandlerFunction() === 'refreshFunnel') ScriptApp.deleteTrigger(t);
+    });
+  }
+}
+
+function especificacionesResto_() {
+  return [
+    { nombre: 'incons', version: 3, sql: sqlIncons_(), string: ['nid', 'pais', 'equipo', 'hub_doc', 'orq_doc', 'hub_pricing', 'orq_pricing', 'hub_remo', 'orq_remo', 'hub_hesh', 'orq_hesh', 'hub_aprob', 'orq_aprob', 'general', 'oportunidad', 'av_doc', 'av_remo', 'av_checks', 'av_pricing', 'av_hesh', 'final', 'fase'], fecha: ['envio', 'resp_doc', 'resp_remo', 'resp_pricing', 'resp_hesh', 'resp_aprob', 'resp_oportunidad'], numero: [] },
+    { nombre: 'actividad', sql: sqlActividad_(), string: ['grano', 'fecha', 'hora', 'pais'], fecha: [], numero: ['n'] },
+    { nombre: 'rechazo', version: 2, sql: sqlRechazo_(), string: ['mes', 'pais', 'tipo', 'estado', 'razon', 'etiqueta', 'linea'], fecha: [], numero: ['n'] },
+    { nombre: 'inmo_full', version: 2, sql: sqlInmoFull_(), string: ['nid', 'pais', 'pais_orq', 'orq', 'rev_doc', 'rev_pricing', 'rev_checks', 'doc_curso', 'doc_recha', 'doc_ok', 'pricing_curso', 'pricing_recha', 'pricing_ok', 'check_curso', 'check_recha', 'check_ok', 'comite', 'estado', 'razon', 'etapa', 'hub_raw', 'hub'], fecha: ['envio', 'inicio', 'fin', 'fin_general', 'resp_doc', 'resp_pricing', 'resp_check', 'fecha_hub'], numero: [] },
+  ];
+}
+
+var NOMBRES_RESTO = ['incons', 'actividad', 'rechazo', 'inmo_full'];
+
+function restoListo_() {
+  var meta = leerMeta_();
+  var tablas = meta.tablas || {};
+  return NOMBRES_RESTO.every(function (nombre) {
+    return !!(tablas[nombre] || {}).fileId;
+  });
+}
+
+// Una tabla del resto queda al día cuando se leyó hoy con la versión actual de su consulta.
+// Si falló hoy, espera a mañana: no reintenta en bucle.
+function restoPendiente_() {
+  var meta = leerMeta_();
+  var tablas = meta.tablas || {};
+  var hoy = hoyBogota();
+  return especificacionesResto_().filter(function (spec) {
+    var info = tablas[spec.nombre] || {};
+    return info.dia !== hoy || info.version !== (spec.version || 1);
+  });
+}
+
+function restoAsentado_() {
+  return restoPendiente_().length === 0;
+}
+
+function programarResto_() {
+  if (!restoPendiente_().length) return;
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'refreshResto') return;
+  }
+  ScriptApp.newTrigger('refreshResto').timeBased().after(60 * 1000).create();
+}
+
+function prepararResto() {
+  assertAllowed_();
+  if (restoAsentado_()) return { listo: restoListo_() };
+  if (!isOwner_()) return { listo: false };
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'refreshResto') return { listo: false, corriendo: true };
+  }
+  try {
+    ScriptApp.newTrigger('refreshResto').timeBased().after(60 * 1000).create();
+  } catch (e) {
+    return { error: 'No se pudo dejar la lectura del resto del tablero.' };
+  }
+  return { listo: false, corriendo: true };
+}
+
+function refreshResto() {
+  var lock = null;
+  var seguir = false;
+  try {
+    if (!puedeRefrescar_()) return;
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(20000)) return;
+    var pendientes = restoPendiente_();
+    if (!pendientes.length) return;
+    var spec = pendientes[0];
+    var meta = leerMeta_();
+    var tablas = Object.assign({}, meta.tablas || {});
+    try {
+      spec.ref = lanzarConsulta_(spec.sql);
+      var inicio = Date.now();
+      while (!jobListo_(spec.ref) && Date.now() - inicio < 4 * 60 * 1000) Utilities.sleep(1500);
+      if (!jobListo_(spec.ref)) throw new Error('BigQuery no terminó a tiempo');
+      var viejo = tablas[spec.nombre] && tablas[spec.nombre].fileId;
+      tablas[spec.nombre] = Object.assign(guardarTabla_(spec), { dia: hoyBogota(), version: spec.version || 1 });
+      if (viejo && viejo !== tablas[spec.nombre].fileId) {
+        try { DriveApp.getFileById(viejo).setTrashed(true); } catch (e2) {}
+      }
+    } catch (e) {
+      // Conserva el archivo anterior: la página sigue mostrando la última lectura buena.
+      tablas[spec.nombre] = Object.assign({}, tablas[spec.nombre], { error: String(e.message || e).slice(0, 240), dia: hoyBogota(), version: spec.version || 1 });
+    }
+    var erroresPrevios = (meta.errores || []).filter(function (linea) {
+      return NOMBRES_RESTO.every(function (nombre) { return linea.indexOf(nombre + ':') !== 0; });
+    });
+    NOMBRES_RESTO.forEach(function (nombre) {
+      var info = tablas[nombre] || {};
+      if (info.error) erroresPrevios.push(nombre + ': ' + info.error);
+    });
+    publicarMeta_(meta.actualizado || selloBogota(), tablas, erroresPrevios);
+    seguir = restoPendiente_().length > 0;
+  } finally {
+    if (lock) { try { lock.releaseLock(); } catch (e3) {} }
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      if (t.getHandlerFunction() === 'refreshResto') ScriptApp.deleteTrigger(t);
+    });
+  }
+  if (seguir) {
+    try { ScriptApp.newTrigger('refreshResto').timeBased().after(20 * 1000).create(); } catch (e4) {}
+  }
+}
+
+function sqlIncons_() {
+  return [
+    'SELECT',
+    '  CAST(nid AS STRING) AS nid,',
+    '  IFNULL(pais_hubspot, "") AS pais,',
+    '  FORMAT_DATE("%F", DATE(fecha_envio_seller)) AS envio,',
+    '  IFNULL(equipo_sellers, "") AS equipo,',
+    '  IFNULL(estado_hub_doc, "") AS hub_doc,',
+    '  IFNULL(estado_orquestador_doc, "Nulo") AS orq_doc,',
+    '  IFNULL(estado_hub_pricing, "") AS hub_pricing,',
+    '  IFNULL(estado_orquestador_pricing, "Nulo") AS orq_pricing,',
+    '  IFNULL(estado_hub_remo, "Nulo") AS hub_remo,',
+    '  IFNULL(estado_orquestador_remo, "Nulo") AS orq_remo,',
+    '  IFNULL(estado_hub_hesh, "Nulo") AS hub_hesh,',
+    '  IFNULL(estado_orquestador_hesh, "Nulo") AS orq_hesh,',
+    '  IFNULL(estado_hub_aprobologia, "Nulo") AS hub_aprob,',
+    '  IFNULL(estado_orquestador_aprobolgia, "Nulo") AS orq_aprob,',
+    '  IFNULL(estado_orquestador_general, "Nulo") AS general,',
+    '  IFNULL(estado_oprtunidad_de_negocio, "Nulo") AS oportunidad,',
+    '  IF(flag_doc_avanza, "1", "") AS av_doc,',
+    '  IF(flag_remo_avanza, "1", "") AS av_remo,',
+    '  IF(flag_checks_avanza, "1", "") AS av_checks,',
+    '  IF(flag_pricing_avanza, "1", "") AS av_pricing,',
+    '  IF(flag_hesh_avanza, "1", "") AS av_hesh,',
+    // «Respuesta final» de la hoja Inconsistencia Respuesta Final de Tableau.
+    '  CASE',
+    '    WHEN estado_orquestador_aprobolgia = "COMPLETED" THEN "Aprobado"',
+    '    WHEN "REJECTED" IN (estado_orquestador_aprobolgia, estado_orquestador_hesh, estado_orquestador_pricing, estado_orquestador_remo, estado_orquestador_doc) THEN "Rechazado"',
+    '    ELSE "En progreso"',
+    '  END AS final,',
+    '  IFNULL(fase_rechazo, "") AS fase,',
+    '  FORMAT_DATE("%F", DATE(respuesta_doc_pais)) AS resp_doc,',
+    '  FORMAT_DATE("%F", DATE(respuesta_remo_pais)) AS resp_remo,',
+    '  FORMAT_DATE("%F", DATE(respuesta_pricing_pais)) AS resp_pricing,',
+    '  FORMAT_DATE("%F", DATE(respuesta_hesh_pais)) AS resp_hesh,',
+    '  FORMAT_DATE("%F", DATE(respuesta_aprobologia_pais)) AS resp_aprob,',
+    '  FORMAT_DATE("%F", DATE(fin_general)) AS resp_oportunidad',
+    'FROM `papyrus-delivery-data.idm_tech.inconsistencias_orquestador`',
+    'WHERE nid IS NOT NULL',
+    '  AND (fecha_envio_seller IS NULL OR DATE(fecha_envio_seller) <= CURRENT_DATE("America/Bogota"))',
+  ].join('\n');
+}
+
+function sqlActividad_() {
+  var base = [
+    'FROM `papyrus-delivery-data.idm_tech.micro_sla_orquestador`',
+    'WHERE tipo_tarea = "Revision de Remodelación"',
+    '  AND flag_doc_avanza',
+    '  AND fecha_inicio IS NOT NULL',
+    '  AND DATE(fecha_inicio) <= CURRENT_DATE("America/Bogota")',
+  ].join('\n');
+  return [
+    'SELECT "dia" AS grano, FORMAT_DATE("%F", DATE(fecha_inicio)) AS fecha, "" AS hora, IFNULL(pais, "") AS pais, COUNT(DISTINCT nid) AS n',
+    base,
+    'GROUP BY fecha, pais',
+    'UNION ALL',
+    'SELECT "hora", FORMAT_DATE("%F", DATE(fecha_inicio)), CAST(EXTRACT(HOUR FROM fecha_inicio) AS STRING), IFNULL(pais, ""), COUNT(DISTINCT nid)',
+    base,
+    'GROUP BY 2, 3, 4',
+  ].join('\n');
+}
+
+// La fuente de «Tablero de Razones de Rechazo Orquestador». «Tipo Tarea» es el grupo de Tableau
+// sobre el nombre de la tarea. Cuenta nid, como CNT(nid).
+function sqlRechazo_() {
+  return [
+    'WITH base AS (',
+    '  SELECT',
+    '    SAFE_CAST(o.nid AS INT64) AS nid,',
+    '    CASE WHEN o.country = "CO" THEN "Colombia" WHEN o.country = "MX" THEN "Mexico" ELSE "" END AS pais,',
+    '    CASE',
+    '      WHEN o.country = "CO" THEN DATETIME(o.workflow_steps_responses_created_at, "America/Bogota")',
+    '      WHEN o.country = "MX" THEN DATETIME(o.workflow_steps_responses_created_at, "America/Mexico_City")',
+    '    END AS respuesta,',
+    '    CASE',
+    '      WHEN o.workflow_steps_name IN ("idm aprobologia", "idm inmo aprobologia automatica") THEN "Aprobologia"',
+    '      WHEN o.workflow_steps_name IN ("idm checks automatico", "idm inmo check") THEN "Check pricing"',
+    '      WHEN o.workflow_steps_name IN ("idm ensamble de precio", "idm hesh") THEN "Hesh - Ensamble"',
+    '      WHEN o.workflow_steps_name IN ("idm inmo pricing comite automatico", "idm inmo pricing comite manual", "idm pricing automatico", "idm pricing manual") THEN "Pricing"',
+    '      WHEN o.workflow_steps_name = "remo comite de remodelaciones" THEN "Remodelación"',
+    '      WHEN o.workflow_steps_name IN ("idm inmo revision de docs automatico", "idm inmo revision docs manual", "idm revision de documentos") THEN "Revisión de documento"',
+    '      WHEN o.workflow_steps_name = "sellers tarea de documentos" THEN "Sellers"',
+    '      ELSE IFNULL(o.workflow_steps_name, "")',
+    '    END AS tipo,',
+    '    o.workflow_steps_responses_status AS estado,',
+    '    IFNULL(o.workflow_steps_responses_reason_for_discard_value, "") AS razon,',
+    '    IFNULL(o.workflow_steps_responses_reason_for_discard_label, "") AS etiqueta,',
+    '    IFNULL(o.workflow_alias, "") AS linea',
+    '  FROM `im-main-prod.orchestrator.PricingCommittee` o',
+    '  WHERE o.workflow_steps_responses_status IN ("REJECTED", "COMPLETED")',
+    ')',
+    'SELECT',
+    '  FORMAT_DATE("%Y-%m-01", DATE(respuesta)) AS mes,',
+    '  pais,',
+    '  tipo,',
+    '  estado,',
+    '  razon,',
+    '  etiqueta,',
+    '  linea,',
+    '  COUNT(nid) AS n',
+    'FROM base',
+    'WHERE respuesta IS NOT NULL AND DATE(respuesta) <= CURRENT_DATE("America/Bogota")',
+    'GROUP BY 1, 2, 3, 4, 5, 6, 7',
+  ].join('\n');
+}
+
+// Una fila por nid de inmobiliaria con las banderas de los tres tableros de Inmo de Tableau.
+// La vista ya no trae las banderas de aprobología ni flag_comite_curso: Checks hace de actividad final
+// en los dos países y «Orquestador en curso» usa flag_existe_al_menos_una_vez.
+function sqlInmoFull_() {
+  var orq = 'IFNULL(flag_orquestador, FALSE)';
+  var revDoc = orq + ' AND respuesta_doc_pais IS NOT NULL';
+  var revPricing = revDoc + ' AND respuesta_pricing_pais IS NOT NULL';
+  var revChecks = revPricing + ' AND respuesta_check_pais IS NOT NULL';
+  var envio = 'fecha_envio_seller';
+  var hoy = 'DATETIME(CURRENT_DATE("America/Bogota"))';
+  return [
+    'SELECT',
+    '  CAST(nid AS STRING) AS nid,',
+    '  IFNULL(pais_hubspot, "") AS pais,',
+    '  IFNULL(pais_orquestador, "") AS pais_orq,',
+    '  FORMAT_DATE("%F", DATE(fecha_envio_seller)) AS envio,',
+    '  FORMAT_DATE("%F", DATE(inicio_comite_pais)) AS inicio,',
+    '  FORMAT_DATE("%F", DATE(fin_comite_pais)) AS fin,',
+    '  FORMAT_DATE("%F", DATE(fin_general)) AS fin_general,',
+    '  FORMAT_DATE("%F", DATE(respuesta_doc_pais)) AS resp_doc,',
+    '  FORMAT_DATE("%F", DATE(respuesta_pricing_pais)) AS resp_pricing,',
+    '  FORMAT_DATE("%F", DATE(respuesta_check_pais)) AS resp_check,',
+    '  FORMAT_DATE("%F", DATE(IF(respuesta_hubspot IS NULL, NULL, fecha_respuesta_hubspot))) AS fecha_hub,',
+    '  ' + bit_(orq) + ' AS orq,',
+    '  ' + bit_(revDoc) + ' AS rev_doc,',
+    '  ' + bit_(revPricing) + ' AS rev_pricing,',
+    '  ' + bit_(revChecks) + ' AS rev_checks,',
+    '  ' + bit3_('flag_doc_estado_actual') + ' AS doc_curso,',
+    '  ' + bit3_('flag_doc_recha') + ' AS doc_recha,',
+    '  ' + bit3_('flag_doc_avanza') + ' AS doc_ok,',
+    '  ' + bit3_('flag_princing_estado_actual') + ' AS pricing_curso,',
+    '  ' + bit3_('flag_pricing_recha') + ' AS pricing_recha,',
+    '  ' + bit3_('flag_pricing_avanza') + ' AS pricing_ok,',
+    '  ' + bit3_('flag_check_estado_actual') + ' AS check_curso,',
+    '  ' + bit3_('flag_check_recha') + ' AS check_recha,',
+    '  ' + bit3_('flag_check_avanza') + ' AS check_ok,',
+    '  ' + bit_('estado_comite IS NOT NULL') + ' AS comite,',
+    '  CASE',
+    '    WHEN estado_comite = "COMPLETED" THEN "Finalizado"',
+    '    WHEN IFNULL(flag_doc_recha, FALSE) OR IFNULL(flag_pricing_recha, FALSE) OR IFNULL(flag_check_recha, FALSE) THEN "Rechazado"',
+    '    WHEN ' + revDoc + ' THEN "En progreso"',
+    '    ELSE "Aún no iniciado"',
+    '  END AS estado,',
+    '  CASE',
+    '    WHEN ' + orq + ' THEN "Happy Path"',
+    '    WHEN IFNULL(flag_existe_al_menos_una_vez, FALSE) THEN "Orquestador en curso"',
+    '    WHEN ' + envio + ' <= DATETIME "2025-10-06" AND pais_hubspot = "Mexico" THEN "Data de prueba"',
+    '    WHEN ' + envio + ' <= DATETIME "2025-10-27" AND pais_hubspot = "Colombia" THEN "Data de prueba"',
+    '    WHEN ' + envio + ' <= ' + hoy + ' AND ' + envio + ' >= DATETIME_SUB(' + hoy + ', INTERVAL 1 DAY) THEN "Error de actualización"',
+    '    ELSE "Sin razón"',
+    '  END AS razon,',
+    '  IFNULL(etapa, "") AS etapa,',
+    '  IFNULL(respuesta_hubspot, "") AS hub_raw,',
+    '  CASE',
+    '    WHEN respuesta_hubspot = "REJECTED" THEN "Rechazado"',
+    '    WHEN respuesta_hubspot IS NULL THEN "Sin Respuesta"',
+    '    ELSE "Aprobado"',
+    '  END AS hub',
+    'FROM `papyrus-delivery-data.idm_tech.funnel_orquestador_inmo`',
+    'WHERE nid IS NOT NULL',
+    '  AND (fecha_envio_seller IS NULL OR DATE(fecha_envio_seller) <= CURRENT_DATE("America/Bogota"))',
+  ].join('\n');
+}
+
+function bit_(expr) {
+  return 'IF(' + expr + ', 1, 0)';
+}
+
+// Como bit_, pero deja vacío el nulo: Tableau distingue «todo menos falso» de «verdadero».
+function bit3_(expr) {
+  return 'IF(' + expr + ' IS NULL, NULL, IF(' + expr + ', 1, 0))';
+}
+
+function segundos_(col) {
+  return 'IF(' + col + ' IS NULL, NULL, EXTRACT(HOUR FROM ' + col + ') * 3600 + EXTRACT(MINUTE FROM ' + col + ') * 60 + EXTRACT(SECOND FROM ' + col + '))';
+}
+
+function sqlFunnel_() {
+  var orq = 'IFNULL(flag_orquestador, FALSE)';
+  var doc = orq + ' AND respuesta_doc_pais IS NOT NULL';
+  var checks = orq + ' AND respuesta_checks_pais IS NOT NULL AND respuesta_doc_pais IS NOT NULL';
+  var pricing = orq + ' AND respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_checks_avanza, FALSE) AND (respuesta_pricing_pais IS NOT NULL OR IFNULL(flag_en_cola_pricing, FALSE))';
+  var remo = orq + ' AND respuesta_remo_pais IS NOT NULL AND respuesta_doc_pais IS NOT NULL';
+  var hesh = orq + ' AND respuesta_hesh_pais IS NOT NULL';
+  var armado = orq + ' AND respuesta_ensamble_pais IS NOT NULL';
+  var aprob = orq + ' AND respuesta_aprobologia_pais IS NOT NULL';
+  return [
+    'SELECT',
+    '  CAST(nid AS STRING) AS nid,',
+    '  IFNULL(pais_hubspot, "") AS pais,',
+    '  FORMAT_DATE("%F", DATE(fecha_envio_seller)) AS envio,',
+    '  FORMAT_DATE("%F", DATE(respuesta_doc_pais)) AS fecha_doc,',
+    '  FORMAT_DATE("%F", DATE(respuesta_remo_pais)) AS fecha_remo,',
+    '  FORMAT_DATE("%F", DATE(respuesta_checks_pais)) AS fecha_checks,',
+    '  FORMAT_DATE("%F", DATE(respuesta_pricing_pais)) AS fecha_pricing,',
+    '  FORMAT_DATE("%F", DATE(respuesta_hesh_pais)) AS fecha_hesh,',
+    '  FORMAT_DATE("%F", DATE(respuesta_aprobologia_pais)) AS fecha_aprob,',
+    '  FORMAT_DATE("%F", DATE(fin_comite_pais)) AS fin,',
+    '  FORMAT_DATE("%F", DATE(fecha_respuesta)) AS fecha_respuesta,',
+    '  ' + segundos_('fecha_envio_seller') + ' AS hora_envio,',
+    '  ' + segundos_('respuesta_doc_pais') + ' AS hora_doc,',
+    '  ' + segundos_('respuesta_remo_pais') + ' AS hora_remo,',
+    '  ' + segundos_('respuesta_checks_pais') + ' AS hora_checks,',
+    '  ' + segundos_('respuesta_pricing_pais') + ' AS hora_pricing,',
+    '  ' + segundos_('respuesta_hesh_pais') + ' AS hora_hesh,',
+    '  ' + segundos_('respuesta_aprobologia_pais') + ' AS hora_aprob,',
+    '  ' + segundos_('fin_comite_pais') + ' AS hora_fin,',
+    '  IFNULL(equipo_sellers, "") AS equipo,',
+    '  IFNULL(estado_comite, "") AS estado,',
+    '  CASE WHEN flag_orquestador IS NULL THEN "" WHEN flag_orquestador THEN "Si" ELSE "No" END AS entro,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) THEN "llego"',
+    '    WHEN IFNULL(flag_comite_curso, FALSE) OR IFNULL(flag_envio_mes_pasado, FALSE) THEN "curso"',
+    '    ELSE "revision"',
+    '  END AS grupo,',
+    '  CASE',
+    '    WHEN NOT IFNULL(flag_orquestador, FALSE) THEN "No entró al orquestador"',
+    '    WHEN respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_estado_actual, FALSE) THEN "Revisión documentos"',
+    '    WHEN respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND respuesta_remo_pais IS NOT NULL AND IFNULL(flag_remo_estado_actual, FALSE) THEN "Remo"',
+    '    WHEN respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND respuesta_checks_pais IS NOT NULL AND IFNULL(flag_checks_estado_actual, FALSE) THEN "Checks"',
+    '    WHEN respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_checks_avanza, FALSE) AND (respuesta_pricing_pais IS NOT NULL OR IFNULL(flag_en_cola_pricing, FALSE)) AND IFNULL(flag_princing_estado_actual, FALSE) THEN "Pricing"',
+    '    WHEN respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND respuesta_hesh_pais IS NOT NULL AND IFNULL(flag_pricing_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND IFNULL(flag_hesh_estado_actual, FALSE) THEN "Hesh"',
+    '    WHEN IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND respuesta_aprobologia_pais IS NOT NULL AND IFNULL(flag_pricing_avanza, FALSE) AND IFNULL(flag_hesh_avanza, FALSE) AND IFNULL(flag_aprobologia_estado_actual, FALSE) THEN "Aprobologia"',
+    '    ELSE "Finalizado"',
+    '  END AS etapa,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND respuesta_doc_pais IS NULL THEN "Si"',
+    '    WHEN IFNULL(flag_orquestador, FALSE) THEN "No"',
+    '    ELSE ""',
+    '  END AS inc_doc,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_doc_avanza, FALSE) AND NOT (respuesta_checks_pais IS NOT NULL AND respuesta_doc_pais IS NOT NULL) THEN "Si"',
+    '    ELSE "No"',
+    '  END AS inc_checks,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_checks_avanza, FALSE) AND NOT (respuesta_doc_pais IS NOT NULL AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_checks_avanza, FALSE) AND (respuesta_pricing_pais IS NOT NULL OR IFNULL(flag_en_cola_pricing, FALSE))) THEN "Si"',
+    '    ELSE "No"',
+    '  END AS inc_pricing,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND IFNULL(flag_pricing_avanza, FALSE) AND respuesta_hesh_pais IS NULL THEN "Si"',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND IFNULL(flag_pricing_avanza, FALSE) THEN "No"',
+    '    ELSE ""',
+    '  END AS inc_hesh,',
+    '  CASE',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND IFNULL(flag_pricing_avanza, FALSE) AND IFNULL(flag_hesh_avanza, FALSE) AND respuesta_aprobologia_pais IS NULL THEN "Si"',
+    '    WHEN IFNULL(flag_orquestador, FALSE) AND IFNULL(flag_doc_avanza, FALSE) AND IFNULL(flag_remo_avanza, FALSE) AND IFNULL(flag_pricing_avanza, FALSE) AND IFNULL(flag_hesh_avanza, FALSE) THEN "No"',
+    '    ELSE ""',
+    '  END AS inc_aprob,',
+    '  IFNULL(propietario_de_aprobacion_final, "") AS propietario,',
+    '  IFNULL(propietario_del_negocio, "") AS dueno,',
+    '  ' + bit_(orq) + ' AS orq,',
+    '  ' + bit_(doc) + ' AS rev_doc,',
+    '  ' + bit_('IFNULL(flag_doc_avanza, FALSE)') + ' AS doc_ok,',
+    '  ' + bit_('IFNULL(flag_doc_estado_actual, FALSE)') + ' AS doc_curso,',
+    '  ' + bit_('IFNULL(flag_doc_recha, FALSE)') + ' AS doc_recha,',
+    '  ' + bit_(checks) + ' AS rev_checks,',
+    '  ' + bit_('IFNULL(flag_checks_avanza, FALSE)') + ' AS checks_ok,',
+    '  ' + bit_('IFNULL(flag_checks_estado_actual, FALSE)') + ' AS checks_curso,',
+    '  ' + bit_(pricing) + ' AS rev_pricing,',
+    '  ' + bit_('IFNULL(flag_pricing_avanza, FALSE)') + ' AS pricing_ok,',
+    '  ' + bit_('IFNULL(flag_princing_estado_actual, FALSE)') + ' AS pricing_curso,',
+    '  ' + bit_('IFNULL(flag_pricing_recha, FALSE)') + ' AS pricing_recha,',
+    '  ' + bit_(remo) + ' AS rev_remo,',
+    '  ' + bit_('IFNULL(flag_remo_avanza, FALSE)') + ' AS remo_ok,',
+    '  ' + bit_('IFNULL(flag_remo_estado_actual, FALSE)') + ' AS remo_curso,',
+    '  ' + bit_('IFNULL(flag_remo_recha, FALSE)') + ' AS remo_recha,',
+    '  ' + bit_(hesh) + ' AS rev_hesh,',
+    '  ' + bit_('IFNULL(flag_hesh_avanza, FALSE)') + ' AS hesh_ok,',
+    '  ' + bit_('IFNULL(flag_hesh_estado_actual, FALSE)') + ' AS hesh_curso,',
+    '  ' + bit_(armado) + ' AS rev_armado,',
+    '  ' + bit_('IFNULL(flag_ensamble_avanza, FALSE)') + ' AS armado_ok,',
+    '  ' + bit_('IFNULL(flag_ensamble_estado_actual, FALSE)') + ' AS armado_curso,',
+    '  ' + bit_('IFNULL(flag_ensamble_recha, FALSE)') + ' AS armado_recha,',
+    '  ' + bit_(aprob) + ' AS rev_aprob,',
+    '  ' + bit_('IFNULL(flag_aprobologia_avanza, FALSE)') + ' AS aprob_ok,',
+    '  ' + bit_('IFNULL(flag_aprobologia_estado_actual, FALSE)') + ' AS aprob_curso,',
+    '  ' + bit_('IFNULL(flag_aprobologia_recha, FALSE)') + ' AS aprob_recha,',
+    '  ' + bit_('IFNULL(flag_comite_curso, FALSE)') + ' AS comite_curso,',
+    '  ' + bit_('IFNULL(flag_envio_mes_pasado, FALSE)') + ' AS envio_pasado',
+    'FROM `papyrus-delivery-data.idm_tech.tabla_funnel_orquestador`',
+    'WHERE nid IS NOT NULL',
+    '  AND (fecha_envio_seller IS NULL OR DATE(fecha_envio_seller) <= CURRENT_DATE("America/Bogota"))',
+  ].join('\n');
+}
+
 function sqlInmo_() {
   return [
     'SELECT',
@@ -389,7 +872,7 @@ function guardarTabla_(spec) {
   var bytes = Utilities.gzip(Utilities.newBlob(json, 'application/json', spec.nombre + '.json')).getBytes();
   if (bytes.length > TOPE_GZIP) throw new Error('El archivo pesa más de 20 MB. Hay que partir la tabla.');
   var archivo = asegurarCarpeta_().createFile(Utilities.newBlob(bytes, 'application/gzip', spec.nombre + '.json.gz'));
-  return { filas: encoder.n, bytes: bytes.length, fileId: archivo.getId(), error: '' };
+  return { filas: encoder.n, bytes: bytes.length, fileId: archivo.getId(), version: spec.version || 1, error: '' };
 }
 
 function cadaFila_(ref, fn) {
@@ -503,14 +986,14 @@ function resumenMeta_(meta) {
   return { actualizado: meta.actualizado, ok: meta.ok, filas: filas, errores: meta.errores || [] };
 }
 
-function guardarCacheSnap_(nombre, actualizado, b64) {
+function guardarCacheSnap_(nombre, clave, b64) {
   if (!b64 || b64.length > 8 * 1024 * 1024) return;
   var cache = CacheService.getScriptCache();
   var trozo = 90000;
   var n = Math.ceil(b64.length / trozo);
   var lote = {};
   var puestos = 0;
-  var base = claveSnap_(nombre, actualizado);
+  var base = claveSnap_(nombre, clave);
   function vaciar() {
     if (!puestos) return;
     cache.putAll(lote, 21600);
@@ -527,9 +1010,9 @@ function guardarCacheSnap_(nombre, actualizado, b64) {
   vaciar();
 }
 
-function leerCacheSnap_(nombre, actualizado) {
+function leerCacheSnap_(nombre, clave) {
   var cache = CacheService.getScriptCache();
-  var base = claveSnap_(nombre, actualizado);
+  var base = claveSnap_(nombre, clave);
   var n = cache.get(base + '-n');
   if (!n) return '';
   var total = Number(n);
@@ -546,8 +1029,8 @@ function leerCacheSnap_(nombre, actualizado) {
   return partes.join('');
 }
 
-function claveSnap_(nombre, actualizado) {
-  return 'orq-snap3-' + nombre + '-' + (actualizado || '0');
+function claveSnap_(nombre, clave) {
+  return 'orq-snap4-' + nombre + '-' + (clave || '0');
 }
 
 function emailUsuario_() {

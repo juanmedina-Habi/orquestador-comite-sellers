@@ -32,7 +32,7 @@ function decodificar(raw) {
     }
     const partes = String(v == null ? "" : v).split(",");
     const arr = new Array(n);
-    const esFecha = k === "envio" || k === "inicio" || k === "fin";
+    const esFecha = k === "envio" || k === "inicio" || k === "fin" || k.indexOf("fecha_") === 0;
     for (let r = 0; r < n; r++) {
       const celda = partes[r] == null ? "" : partes[r];
       if (celda === "") arr[r] = esFecha ? "" : null;
@@ -69,6 +69,7 @@ function prepararTablas() {
     t.orden = orden;
   });
   VISTAS.forEach(v => {
+    if (v.id === "funnel" || RESTO_IDS.indexOf(v.id) >= 0) return;
     const t = window.TABLAS[fuenteDe(v.id)];
     const vistaCol = t && t.cols.vista;
     const idx = [];
@@ -154,6 +155,7 @@ function filaVisible(vista, t, i) {
     comite: c.comite ? c.comite[i] : "",
     estado: c.estado ? c.estado[i] : "",
     propietario: c.propietario ? c.propietario[i] : "",
+    reintentos: c.reintentos ? c.reintentos[i] : "",
   };
 }
 function paginaLocal(pedido, matches) {
@@ -166,6 +168,18 @@ function paginaLocal(pedido, matches) {
   };
 }
 function catalogoDe(vista) {
+  if (RESTO_IDS.indexOf(vista) >= 0) return {};
+  if (vista === "funnel") {
+    const t = window.TABLAS && window.TABLAS.funnel;
+    const cat = { equipo: [], propietario: [], dueno: [] };
+    if (!t) return cat;
+    ["equipo", "propietario", "dueno"].forEach(dim => {
+      const set = new Set();
+      (t.cols[dim] || []).forEach(v => { if (v) set.add(v); });
+      cat[dim] = [...set].sort((a, b) => a.localeCompare(b, "es"));
+    });
+    return cat;
+  }
   const t = window.TABLAS[fuenteDe(vista)];
   const idx = window.INDICE[vista] || [];
   let dims = [];
@@ -190,14 +204,12 @@ function tablaExportLocal(pedido) {
   }
   const t = window.TABLAS[fuenteDe(pedido.vista)];
   const aprob = pedido.vista === "aprobologia";
-  const encabezado = aprob
-    ? ["Nid", "País", "Inicio", "Fin", "Horas hábiles", "Cumple", "Tiempo hábil", "Agente", "Comité en curso", "Estado", "Propietario"]
-    : ["Nid", "País", "Inicio", "Fin", "Horas hábiles", "Cumple", "Etapa", "Tipo"];
+  const extras = columnasExtra(pedido.vista);
+  const encabezado = ["Nid", "País", "Inicio", "Fin", "Horas hábiles", "Cumple"].concat(extras.map(x => x.t), aprob ? ["Propietario"] : []);
   const cuerpo = recorte.matches.map(i => {
     const f = filaVisible(pedido.vista, t, i);
-    return aprob
-      ? [f.nid, rotuloPais(f.pais), fechaCorta(f.inicio), fechaCorta(f.fin), f.horas == null ? "" : f.horas, f.cumple, tiempoHabil(f.horas), f.agente, f.comite, f.estado, f.propietario]
-      : [f.nid, rotuloPais(f.pais), fechaCorta(f.inicio), fechaCorta(f.fin), f.horas == null ? "" : f.horas, f.cumple, f.etapa, f.tipo];
+    return [f.nid, rotuloPais(f.pais), fechaCorta(f.inicio), fechaCorta(f.fin), f.horas == null ? "" : f.horas, f.cumple]
+      .concat(extras.map(x => x.v(f)), aprob ? [f.propietario] : []);
   });
   let nombre = "Orquestador " + pedido.vista;
   if (pedido.periodo) nombre += " " + pedido.periodo;

@@ -1,0 +1,547 @@
+<script>
+/* Funnel de envíos a comité. Las condiciones salen de las hojas de Tableau; aquí solo se cuentan. */
+function uno(c, i, k) {
+  return c[k] && c[k][i] === "1";
+}
+function filasFunnel() {
+  const t = window.TABLAS && window.TABLAS.funnel;
+  if (!t) return null;
+  const f = filtros();
+  const nid = (val("funnel-nid") || "").trim();
+  const c = t.cols;
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (f.pais && c.pais[i] !== f.pais) continue;
+    if (!enRango(c.envio[i], f.envioDesde, f.envioHasta)) continue;
+    if (f.equipo && !f.equipo.has(c.equipo[i])) continue;
+    if (f.propietario && !f.propietario.has(c.propietario[i])) continue;
+    if (f.dueno && !f.dueno.has(c.dueno[i])) continue;
+    if (nid && String(c.nid[i]).indexOf(nid) < 0) continue;
+    idx.push(i);
+  }
+  return { t: t, idx: idx };
+}
+function contarFunnel(t, idx) {
+  const c = t.cols;
+  const n = {
+    llego: 0,
+    doc: 0, docOk: 0, docCurso: 0, docRecha: 0, docNo: 0,
+    checks: 0, checksOk: 0, checksCurso: 0, checksNo: 0,
+    pricing: 0, pricingOk: 0, pricingCurso: 0, pricingRecha: 0, pricingSin: 0,
+    remo: 0, remoOk: 0, remoCurso: 0, remoRecha: 0, finalizo: 0,
+    hesh: 0, heshOk: 0, heshCurso: 0, heshNo: 0,
+    armado: 0, armadoOk: 0, armadoCurso: 0, armadoRecha: 0, armadoSin: 0,
+    aprob: 0, aprobOk: 0, aprobCurso: 0, aprobRecha: 0, aprobSin: 0,
+  };
+  idx.forEach(i => {
+    const orq = uno(c, i, "orq");
+    const revDoc = uno(c, i, "rev_doc");
+    const docOk = uno(c, i, "doc_ok");
+    const revChecks = uno(c, i, "rev_checks");
+    const checksOk = uno(c, i, "checks_ok");
+    const revPricing = uno(c, i, "rev_pricing");
+    const pricingOk = uno(c, i, "pricing_ok");
+    const revRemo = uno(c, i, "rev_remo");
+    const remoOk = uno(c, i, "remo_ok");
+    const revHesh = uno(c, i, "rev_hesh");
+    const heshOk = uno(c, i, "hesh_ok");
+    const revArmado = uno(c, i, "rev_armado");
+    const revAprob = uno(c, i, "rev_aprob");
+    if (orq) n.llego++;
+    if (revDoc) n.doc++;
+    if (revDoc && docOk) n.docOk++;
+    if (revDoc && uno(c, i, "doc_curso")) n.docCurso++;
+    if (revDoc && uno(c, i, "doc_recha")) n.docRecha++;
+    if (!revDoc && orq) n.docNo++;
+    if (revDoc && revChecks && docOk) n.checks++;
+    if (revDoc && revChecks && docOk && checksOk) n.checksOk++;
+    if (revDoc && revChecks && docOk && uno(c, i, "checks_curso")) n.checksCurso++;
+    if (revDoc && !revChecks && docOk) n.checksNo++;
+    if (revDoc && revPricing && docOk) n.pricing++;
+    if (revDoc && revPricing && docOk && pricingOk) n.pricingOk++;
+    if (revDoc && revPricing && docOk && !pricingOk && uno(c, i, "pricing_curso")) n.pricingCurso++;
+    if (revDoc && revPricing && docOk && uno(c, i, "pricing_recha")) n.pricingRecha++;
+    if (revDoc && !revPricing && checksOk && docOk) n.pricingSin++;
+    if (revDoc && revRemo && docOk) n.remo++;
+    if (revDoc && revRemo && docOk && remoOk) n.remoOk++;
+    if (revDoc && revRemo && docOk && uno(c, i, "remo_curso")) n.remoCurso++;
+    if (revDoc && revRemo && docOk && uno(c, i, "remo_recha")) n.remoRecha++;
+    if (revDoc && docOk && pricingOk && remoOk) n.finalizo++;
+    if (revDoc && revHesh && docOk) n.hesh++;
+    if (revDoc && docOk && heshOk) n.heshOk++;
+    if (revDoc && revHesh && docOk && uno(c, i, "hesh_curso")) n.heshCurso++;
+    if (revDoc && !revHesh && docOk && pricingOk && remoOk) n.heshNo++;
+    const puertaArmado = docOk && heshOk && pricingOk && remoOk && (c.envio[i] || "") > "2025-10-26";
+    if (puertaArmado && revArmado) n.armado++;
+    if (puertaArmado && revArmado && uno(c, i, "armado_ok")) n.armadoOk++;
+    if (puertaArmado && revArmado && uno(c, i, "armado_curso")) n.armadoCurso++;
+    if (puertaArmado && revArmado && uno(c, i, "armado_recha")) n.armadoRecha++;
+    if (puertaArmado && !revArmado) n.armadoSin++;
+    if (revAprob && docOk && heshOk) n.aprob++;
+    if (docOk && heshOk && uno(c, i, "aprob_ok")) n.aprobOk++;
+    if (docOk && heshOk && uno(c, i, "aprob_curso")) n.aprobCurso++;
+    if (docOk && heshOk && uno(c, i, "aprob_recha")) n.aprobRecha++;
+    if (!revAprob && docOk && heshOk) n.aprobSin++;
+  });
+  n.envios = idx.length;
+  n.noLlego = n.envios - n.llego;
+  return n;
+}
+function pctTxt(parte, base) {
+  if (!base) return "—";
+  return nf1.format((100 * parte) / base) + "%";
+}
+const ORIGEN_X = 320;
+const ORIGEN_Y = 5900;
+const ANCHO_FUNNEL = 99360;
+const ALTO_FUNNEL = 70221;
+function zona(x, y, w, h, nombre, valor, base, tono) {
+  const hueco = 0.22;
+  const izquierda = (x - ORIGEN_X) / ANCHO_FUNNEL * 100 + hueco;
+  const arriba = (y - ORIGEN_Y) / ALTO_FUNNEL * 100 + hueco;
+  const ancho = Math.max(w / ANCHO_FUNNEL * 100 - hueco * 2, 1.1);
+  const alto = Math.max(h / ALTO_FUNNEL * 100 - hueco * 2, 1.1);
+  const porcentaje = tono === "total" ? "" : pctTxt(valor, base);
+  const pct = porcentaje ? `<small>${porcentaje}</small>` : "";
+  const alBorde = x + w > 82000 ? " tip-izq" : "";
+  const texto = porcentaje ? `${nombre}: ${nf.format(valor)} (${porcentaje})` : `${nombre}: ${nf.format(valor)}`;
+  return `<article class="caja-pos ${tono}${alBorde}" style="left:${izquierda}%;top:${arriba}%;width:${ancho}%;height:${alto}%" title="${esc(texto)}">
+    <div class="caja-vista"><span>${esc(nombre)}</span><strong>${nf.format(valor)}</strong>${pct}</div>
+    <div class="caja-tip"><span>${esc(nombre)}</span><strong>${nf.format(valor)}</strong>${pct}</div>
+  </article>`;
+}
+function pintarFunnel() {
+  const v = VISTAS.find(x => x.id === "funnel");
+  document.getElementById("titulo").textContent = v.nombre;
+  document.getElementById("subtitulo").textContent = v.nota;
+  const detalle = document.getElementById("detalle");
+  detalle.hidden = false;
+  detalleArmada = "funnel";
+  const pagina = document.getElementById("pagina");
+  const pack = filasFunnel();
+  if (!pack) {
+    const extra = window.ERROR_FUNNEL ? ` ${esc(window.ERROR_FUNNEL)}` : " Si acabas de publicar, vuelve a esta pestaña en un minuto.";
+    pagina.innerHTML = `<p class="aviso-espera">El funnel se está preparando con la lectura del día. Las pestañas de SLA siguen disponibles.${extra}</p>`;
+    const desglose = document.getElementById("desglose");
+    if (desglose) desglose.hidden = true;
+    return;
+  }
+  const n = contarFunnel(pack.t, pack.idx);
+  const pais = radio("funnel-pais");
+  const donde = pais ? rotuloPais(pais) : "Todos los países";
+  const cajas = [
+    zona(320, 5900, 99360, 3614, "Cantidad de envíos a comité", n.envios, n.envios, "total"),
+    zona(320, 9514, 5240, 4910, "No recibido por orquestador", n.noLlego, n.envios, "muted"),
+    zona(5560, 9514, 94120, 4910, "Recibidos por el orquestador", n.llego, n.envios, "sigue"),
+    zona(5560, 14424, 4760, 4265, "Sin tarea rev. documentos", n.docNo, n.llego, "muted"),
+    zona(10320, 14424, 89360, 4265, "Revisión de documentos", n.doc, n.llego, "etapa"),
+    zona(10320, 18689, 5800, 3270, "Rechazado", n.docRecha, n.doc, "recha"),
+    zona(16120, 18689, 4440, 3269, "En proceso", n.docCurso, n.doc, "curso"),
+    zona(20560, 18689, 79120, 3284, "Aprobado", n.docOk, n.doc, "ok"),
+    zona(20560, 21973, 12520, 3587, "Revisión de remodelación", n.remo, n.docOk, "etapa"),
+    zona(33080, 21973, 60226, 3603, "Checks automáticos", n.checks, n.docOk, "etapa"),
+    zona(93306, 21973, 6374, 3603, "Sin tarea checks", n.checksNo, n.docOk, "muted"),
+    zona(20560, 25560, 3880, 12379, "Rechazado", n.remoRecha, n.remo, "recha"),
+    zona(24440, 25560, 4760, 12379, "En proceso", n.remoCurso, n.remo, "curso"),
+    zona(29200, 25560, 3880, 12379, "Aprobado", n.remoOk, n.remo, "ok"),
+    zona(33080, 25576, 54385, 5149, "Aprobado", n.checksOk, n.checks, "ok"),
+    zona(87465, 25576, 5841, 5149, "En proceso", n.checksCurso, n.checks, "curso"),
+    zona(33080, 30725, 47719, 3759, "Pricing", n.pricing, n.checksOk, "etapa"),
+    zona(80799, 30725, 6666, 3759, "Sin tarea pricing", n.pricingSin, n.checksOk, "muted"),
+    zona(33080, 34484, 38920, 3455, "Aprobado", n.pricingOk, n.pricing, "ok"),
+    zona(72000, 34484, 3880, 3455, "En proceso", n.pricingCurso, n.pricing, "curso"),
+    zona(75880, 34484, 4928, 3455, "Rechazado", n.pricingRecha, n.pricing, "recha"),
+    zona(29303, 37939, 42697, 4243, "Aprobado remodelación y pricing", n.finalizo, n.docOk, "ok"),
+    zona(29303, 42182, 6777, 4363, "Sin tarea hesh", n.heshNo, n.finalizo, "muted"),
+    zona(36080, 42182, 35920, 4363, "Hesh", n.hesh, n.finalizo, "etapa"),
+    zona(35978, 46545, 4640, 4303, "En proceso", n.heshCurso, n.hesh, "curso"),
+    zona(40618, 46545, 31382, 4303, "Aprobado", n.heshOk, n.hesh, "ok"),
+    zona(40618, 50848, 27248, 3940, "Armado de precio", n.armado, n.heshOk, "etapa"),
+    zona(67866, 50848, 4134, 3940, "Sin inicial", n.armadoSin, n.heshOk, "muted"),
+    zona(40618, 54788, 21422, 5030, "Aprobado", n.armadoOk, n.armado, "ok"),
+    zona(62040, 54788, 2520, 5030, "En curso", n.armadoCurso, n.armado, "curso"),
+    zona(64560, 54788, 3320, 5030, "Rechazado", n.armadoRecha, n.armado, "recha"),
+    zona(40618, 59818, 15771, 7273, "Aprobología", n.aprob, n.heshOk, "etapa"),
+    zona(56389, 59818, 5657, 7273, "Sin tarea aprobología", n.aprobSin, n.heshOk, "muted"),
+    zona(40618, 67091, 3811, 9030, "Rechazado", n.aprobRecha, n.heshOk, "recha"),
+    zona(44429, 67091, 6181, 9030, "En proceso", n.aprobCurso, n.heshOk, "curso"),
+    zona(50610, 67091, 5779, 9030, "Aprobado", n.aprobOk, n.heshOk, "ok"),
+  ];
+  pagina.innerHTML = `
+    <div class="marco-embudo" aria-label="Funnel ${esc(donde)}">
+      <div class="lienzo-embudo">${cajas.join("")}</div>
+    </div>
+    <p class="embudo-nota">Pasa el cursor por una caja para ver el nombre, el número y el porcentaje. ${esc(donde)}.</p>`;
+  pintarDesglose();
+  if (!document.getElementById("seccion-detalle-funnel")) montarSeccionDetalle();
+  else {
+    const equipo = document.getElementById("det-equipo");
+    const sinLista = equipo && !equipo.querySelector("input[data-valor]");
+    const estado = document.getElementById("det-estado");
+    const cols = window.TABLAS && window.TABLAS.funnel && window.TABLAS.funnel.cols;
+    const sinEstado = estado && estado.options.length < 2 && cols && cols.estado;
+    if (sinLista || sinEstado) instalarDetalle();
+    pintarTablaFunnel();
+  }
+}
+function montarSeccionDetalle() {
+  const detalle = document.getElementById("detalle");
+  detalle.classList.add("seccion-nueva");
+  detalle.innerHTML = `
+    <div id="seccion-detalle-funnel">
+      <div class="detalle-cab">
+        <div>
+          <h2>Tabla de detalle</h2>
+          <p>Abre como en Tableau: envíos del 1 de junio de 2025 a hoy que sí entraron al orquestador. El resto de filtros queda en (Todo).</p>
+        </div>
+      </div>
+      <div class="filtros-aprobologia filtros-detalle">
+        ${rango("det-envio", "Fecha de Envío Seller", "Del 1 de junio de 2025 a hoy, como en Tableau.")}
+        <label class="filtro"><span>País</span><select id="det-pais"><option value="">(Todo)</option><option value="Colombia">Colombia</option><option value="Mexico">México</option></select></label>
+        <label class="filtro"><span>Estado comité</span><select id="det-estado"><option value="">(Todo)</option></select></label>
+        ${selectSiNo("det-entro", "Entró al orquestador")}
+        ${selectSiNo("det-inc-doc", "Inconsistencia rev. documentos")}
+        ${selectSiNo("det-inc-checks", "Inconsistencia checks")}
+        ${selectSiNo("det-inc-hesh", "Inconsistencia hesh")}
+        ${selectSiNo("det-inc-aprob", "Inconsistencia aprobología")}
+        ${selectSiNo("det-inc-pricing", "Inconsistencia pricing")}
+        ${lista("det-equipo", "Equipo Sellers")}
+        <label class="filtro"><span>Etapa en proceso</span><select id="det-etapa"><option value="">(Todo)</option></select></label>
+        <label class="filtro"><span>Nid</span><input id="det-nid" type="search" inputmode="numeric" placeholder="Buscar nid"></label>
+        ${lista("det-propietario", "Propietario de aprobología")}
+        ${lista("det-dueno", "Propietario del negocio")}
+      </div>
+      <div class="detalle-bar">
+        <span id="fun-cuenta"></span>
+        <span class="detalle-nav">
+          <button type="button" class="btn-limpiar" id="fun-prev">Anterior</button>
+          <button type="button" class="btn-limpiar" id="fun-next">Siguiente</button>
+        </span>
+      </div>
+      <div class="detalle-marco">
+        <table>
+          <thead><tr>
+            <th>País</th><th>Nid</th><th>Fecha de envío</th><th>Estado comité</th><th>Entró al orquestador</th><th>Inconsistencia rev. documentos</th><th>Revisión documentos</th><th>Revisión remo</th><th>Checks pricing</th><th>Pricing</th><th>Hesh</th><th>Aprobología</th><th>Fin en orquestador</th>
+          </tr></thead>
+          <tbody id="fun-cuerpo"></tbody>
+        </table>
+      </div>
+    </div>`;
+  document.getElementById("det-envio-desde").value = "2025-06-01";
+  document.getElementById("det-envio-hasta").value = hoyISO();
+  document.getElementById("det-entro").value = "Si";
+  if (!detalle.dataset.escuchaDetalle) {
+    detalle.dataset.escuchaDetalle = "1";
+    detalle.addEventListener("change", e => {
+      if (!e.target.closest("#seccion-detalle-funnel")) return;
+      if (e.target.closest(".desplegable")) return;
+      busqueda.funnel.pagina = 0;
+      pintarTablaFunnel();
+    });
+  }
+  document.getElementById("det-nid").addEventListener("input", () => {
+    busqueda.funnel.pagina = 0;
+    clearTimeout(detalle._nid);
+    detalle._nid = setTimeout(pintarTablaFunnel, 200);
+  });
+  document.getElementById("fun-prev").addEventListener("click", () => moverPaginaFunnel(-1));
+  document.getElementById("fun-next").addEventListener("click", () => moverPaginaFunnel(1));
+  instalarDetalle();
+  pintarTablaFunnel();
+}
+function instalarDetalle() {
+  const t = window.TABLAS && window.TABLAS.funnel;
+  if (!t || !t.cols || !document.getElementById("det-estado")) return;
+  const distintos = col => {
+    const set = new Set();
+    (t.cols[col] || []).forEach(v => { if (v) set.add(v); });
+    return [...set].sort((a, b) => a.localeCompare(b, "es"));
+  };
+  const llenarSelect = (id, valores) => {
+    const el = document.getElementById(id);
+    const actual = el.value;
+    el.innerHTML = `<option value="">(Todo)</option>` + valores.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    el.value = valores.indexOf(actual) >= 0 ? actual : "";
+  };
+  if (t.cols.estado) llenarSelect("det-estado", distintos("estado"));
+  if (t.cols.etapa) llenarSelect("det-etapa", distintos("etapa"));
+  ["equipo", "propietario", "dueno"].forEach(dim => {
+    const id = "det-" + dim;
+    const prev = marcasActuales(id);
+    llenarLista(id, distintos(dim));
+    if (prev) marcarLista(id, prev);
+  });
+}
+function resetDetalle() {
+  const desde = document.getElementById("det-envio-desde");
+  if (!desde) return;
+  desde.value = "2025-06-01";
+  document.getElementById("det-envio-hasta").value = hoyISO();
+  document.getElementById("det-entro").value = "Si";
+  document.getElementById("det-nid").value = "";
+  ["det-pais", "det-estado", "det-etapa", "det-inc-doc", "det-inc-checks", "det-inc-pricing", "det-inc-hesh", "det-inc-aprob"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+  ["det-equipo", "det-propietario", "det-dueno"].forEach(id => {
+    const root = document.getElementById(id);
+    if (!root) return;
+    root.querySelectorAll("input").forEach(x => { x.checked = true; });
+    resumenLista(root);
+  });
+}
+function moverPaginaFunnel(delta) {
+  busqueda.funnel.pagina = Math.max(0, (busqueda.funnel.pagina || 0) + delta);
+  pintarTablaFunnel();
+}
+function pintarTablaFunnel() {
+  const cuerpo = document.getElementById("fun-cuerpo");
+  const cuenta = document.getElementById("fun-cuenta");
+  if (!cuerpo) return;
+  const pack = filasDetalle();
+  if (!pack) {
+    cuerpo.innerHTML = `<tr><td colspan="13">Todavía no llega el listado de envíos. El embudo de arriba sigue disponible.</td></tr>`;
+    if (cuenta) cuenta.textContent = "";
+    return;
+  }
+  const c = pack.t.cols;
+  const celda = (nombre, i) => (c[nombre] ? (c[nombre][i] || "") : "");
+  const orden = pack.idx.slice().sort((a, b) => {
+    if (c.envio[a] !== c.envio[b]) return c.envio[a] < c.envio[b] ? 1 : -1;
+    if (c.nid[a] !== c.nid[b]) return c.nid[a] < c.nid[b] ? 1 : -1;
+    return 0;
+  });
+  const total = orden.length;
+  const ultima = Math.max(0, Math.ceil(total / TAM) - 1);
+  if ((busqueda.funnel.pagina || 0) > ultima) busqueda.funnel.pagina = ultima;
+  const pagina = busqueda.funnel.pagina || 0;
+  const corte = orden.slice(pagina * TAM, pagina * TAM + TAM);
+  cuerpo.innerHTML = corte.map(i => `<tr>
+    <td>${esc(rotuloPais(c.pais[i]))}</td>
+    <td class="num">${esc(c.nid[i])}</td>
+    <td class="num">${esc(fechaHora(celda("envio", i), celda("hora_envio", i)))}</td>
+    <td>${esc(celda("estado", i))}</td>
+    <td>${esc(textoSiNo(c.entro ? celda("entro", i) : (c.orq[i] === "1" ? "Si" : "No")))}</td>
+    <td>${esc(textoSiNo(celda("inc_doc", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_doc", i), celda("hora_doc", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_remo", i), celda("hora_remo", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_checks", i), celda("hora_checks", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_pricing", i), celda("hora_pricing", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_hesh", i), celda("hora_hesh", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fecha_aprob", i), celda("hora_aprob", i)))}</td>
+    <td class="num">${esc(fechaHora(celda("fin", i), celda("hora_fin", i)))}</td>
+  </tr>`).join("") || `<tr><td colspan="13">No hay nid con estos filtros.</td></tr>`;
+  if (cuenta) cuenta.textContent = total ? `${nf.format(pagina * TAM + 1)}–${nf.format(Math.min(total, (pagina + 1) * TAM))} de ${nf.format(total)}` : "0 nid";
+  const prev = document.getElementById("fun-prev");
+  const next = document.getElementById("fun-next");
+  if (prev) prev.disabled = pagina <= 0;
+  if (next) next.disabled = pagina >= ultima;
+}
+function textoSiNo(v) {
+  return v === "Si" ? "Sí" : v === "No" ? "No" : "";
+}
+function filasDetalle() {
+  const t = window.TABLAS && window.TABLAS.funnel;
+  if (!t || !t.cols || !t.n) return null;
+  const c = t.cols;
+  const desde = val("det-envio-desde");
+  const hasta = val("det-envio-hasta");
+  const entro = val("det-entro");
+  const estado = val("det-estado");
+  const etapa = val("det-etapa");
+  const nid = (val("det-nid") || "").trim();
+  const pais = val("det-pais");
+  const equipo = marcas("det-equipo");
+  const propietario = marcas("det-propietario");
+  const dueno = marcas("det-dueno");
+  const inc = {
+    inc_doc: val("det-inc-doc"),
+    inc_checks: val("det-inc-checks"),
+    inc_pricing: val("det-inc-pricing"),
+    inc_hesh: val("det-inc-hesh"),
+    inc_aprob: val("det-inc-aprob"),
+  };
+  const idx = [];
+  for (let i = 0; i < t.n; i++) {
+    if (!enRango(c.envio[i], desde, hasta)) continue;
+    if (pais && c.pais[i] !== pais) continue;
+    if (entro) {
+      const marca = c.entro ? c.entro[i] : (c.orq[i] === "1" ? "Si" : "No");
+      if (marca !== entro) continue;
+    }
+    if (estado && c.estado && c.estado[i] !== estado) continue;
+    if (etapa && c.etapa && c.etapa[i] !== etapa) continue;
+    if (nid && String(c.nid[i]).indexOf(nid) < 0) continue;
+    if (equipo && !equipo.has(c.equipo[i])) continue;
+    if (propietario && !propietario.has(c.propietario[i])) continue;
+    if (dueno && !dueno.has(c.dueno[i])) continue;
+    let sigue = true;
+    Object.keys(inc).forEach(k => {
+      if (inc[k] && c[k] && c[k][i] !== inc[k]) sigue = false;
+    });
+    if (!sigue) continue;
+    idx.push(i);
+  }
+  return { t: t, idx: idx };
+}
+const GRUPOS_ENVIO = [
+  { id: "llego", nombre: "Llegó al orquestador" },
+  { id: "curso", nombre: "Comité en curso" },
+  { id: "revision", nombre: "En revisión" },
+];
+function grupoEnvio(c, i) {
+  if (c.grupo && c.grupo[i]) return c.grupo[i];
+  if (c.orq[i] === "1") return "llego";
+  if (!(c.comite_curso && c.envio_pasado)) return "";
+  if (c.comite_curso[i] === "1" || c.envio_pasado[i] === "1") return "curso";
+  return "revision";
+}
+function pintarDesglose() {
+  const root = document.getElementById("desglose");
+  if (!root) return;
+  const pack = filasFunnel();
+  if (!pack) {
+    root.hidden = true;
+    return;
+  }
+  root.hidden = false;
+  if (!root.dataset.escucha) {
+    root.dataset.escucha = "1";
+    root.addEventListener("click", e => {
+      const barra = e.target.closest("[data-grupo]");
+      if (barra && !barra.disabled) {
+        const id = barra.dataset.grupo;
+        busqueda.funnel.grupo = busqueda.funnel.grupo === id ? "" : id;
+        busqueda.funnel.paginaGrupo = 0;
+        pintarDesglose();
+        return;
+      }
+      if (e.target.id === "desg-prev") moverGrupo(-1);
+      if (e.target.id === "desg-next") moverGrupo(1);
+    });
+  }
+  const c = pack.t.cols;
+  const clasificado = !!(c.grupo || (c.comite_curso && c.envio_pasado));
+  const conteo = { llego: 0, curso: 0, revision: 0 };
+  let fuera = 0;
+  pack.idx.forEach(i => {
+    const g = grupoEnvio(c, i);
+    if (g) conteo[g]++;
+    else fuera++;
+  });
+  const mayor = Math.max(conteo.llego, conteo.curso, conteo.revision, 1);
+  const elegido = busqueda.funnel.grupo || "";
+  const altoMax = 190;
+  const columnas = GRUPOS_ENVIO.map(g => {
+    const n = conteo[g.id];
+    const listo = g.id === "llego" || clasificado;
+    const alto = listo ? Math.max(8, Math.round(altoMax * n / mayor)) : 8;
+    const activo = elegido === g.id ? " activa" : "";
+    return `<button type="button" class="columna-envio ${g.id}${activo}" data-grupo="${g.id}"${listo ? "" : " disabled"}>
+      <strong>${listo ? nf.format(n) : "…"}</strong>
+      <span class="columna-barra" style="height:${alto}px"></span>
+      <b>${esc(g.nombre)}</b>
+    </button>`;
+  }).join("");
+  const aviso = clasificado ? "" : `<p class="desglose-nota">${esc(window.ERROR_DESGLOSE || ("Comité en curso y en revisión se están completando. Sin llegar al orquestador: " + nf.format(fuera) + "."))}</p>`;
+  const nombreGrupo = id => (GRUPOS_ENVIO.find(g => g.id === id) || {}).nombre || "";
+  const filas = pack.idx.filter(i => !elegido || grupoEnvio(c, i) === elegido).sort((a, b) => {
+    if (c.envio[a] !== c.envio[b]) return c.envio[a] < c.envio[b] ? -1 : 1;
+    if (c.nid[a] !== c.nid[b]) return c.nid[a] < c.nid[b] ? -1 : 1;
+    return 0;
+  });
+  const paso = 15;
+  const ultima = Math.max(0, Math.ceil(filas.length / paso) - 1);
+  let pagina = busqueda.funnel.paginaGrupo || 0;
+  if (pagina > ultima) pagina = ultima;
+  busqueda.funnel.paginaGrupo = pagina;
+  const corte = filas.slice(pagina * paso, pagina * paso + paso);
+  const cuenta = filas.length ? `${nf.format(pagina * paso + 1)}–${nf.format(Math.min(filas.length, (pagina + 1) * paso))} de ${nf.format(filas.length)}` : "0 nid";
+  const filasHtml = corte.map(i => {
+    const g = grupoEnvio(c, i);
+    const nombre = g ? nombreGrupo(g) : "Sin llegar";
+    return `<tr>
+      <td class="num">${esc(fechaHora(c.envio[i], c.hora_envio ? c.hora_envio[i] : ""))}</td>
+      <td class="num">${esc(c.nid[i])}</td>
+      <td>${esc(rotuloPais(c.pais[i]))}</td>
+      <td>${esc(nombre)}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="4">No hay nid en este grupo.</td></tr>`;
+  root.innerHTML = `
+    <div class="detalle-cab">
+      <div>
+        <h2>Desglose de envíos</h2>
+        <p>Pulsa una columna para ver solo ese grupo. Sigue los filtros de arriba.</p>
+      </div>
+    </div>
+    <div class="grafica-desglose">${columnas}</div>
+    ${aviso}
+    <h3 class="desglose-titulo-detalle">Detalle</h3>
+    <div class="detalle-bar">
+      <span>${cuenta}</span>
+      <span class="detalle-nav">
+        <button type="button" class="btn-limpiar" id="desg-prev"${pagina <= 0 ? " disabled" : ""}>Anterior</button>
+        <button type="button" class="btn-limpiar" id="desg-next"${pagina >= ultima ? " disabled" : ""}>Siguiente</button>
+      </span>
+    </div>
+    <div class="detalle-marco">
+      <table>
+        <thead><tr><th>Fecha de envío</th><th>Nid</th><th>País</th><th>Desglose</th></tr></thead>
+        <tbody>${filasHtml}</tbody>
+      </table>
+    </div>`;
+}
+function moverGrupo(delta) {
+  busqueda.funnel.paginaGrupo = Math.max(0, (busqueda.funnel.paginaGrupo || 0) + delta);
+  pintarDesglose();
+}
+function horaTexto(hora) {
+  if (hora == null || hora === "") return "";
+  const texto = String(hora);
+  if (texto.indexOf(":") >= 0) return texto;
+  const n = Number(texto);
+  if (!Number.isFinite(n)) return "";
+  const s = Math.max(0, Math.round(n));
+  const hh = String(Math.floor(s / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+function fechaHora(iso, hora) {
+  const f = fechaCorta(iso);
+  if (!f) return "";
+  const h = horaTexto(hora);
+  return h ? f + " " + h : f;
+}
+function funnelActual() {
+  const t = window.TABLAS && window.TABLAS.funnel;
+  return !!(t && t.cols && t.cols.grupo);
+}
+let relojFunnel = 0;
+let intentosFunnel = 0;
+function vigilarFunnel() {
+  if (funnelActual()) return;
+  clearInterval(relojFunnel);
+  llamarServidor("prepararFunnel").then(prog => {
+    if (prog && prog.error) {
+      window.ERROR_FUNNEL = prog.error;
+      if (vistaId === "funnel") pintarFunnel();
+    }
+  }).catch(() => {});
+  relojFunnel = setInterval(async () => {
+    try {
+      const boot = await llamarServidor("getBootstrap");
+      window.ERROR_DESGLOSE = (boot && boot.funnelError) || "";
+      if (!boot || !boot.funnel) {
+        llamarServidor("prepararFunnel").catch(() => {});
+        return;
+      }
+      clearInterval(relojFunnel);
+      await traerFunnel();
+      if (!(window.TABLAS && window.TABLAS.funnel)) return;
+      instalarCatalogo("funnel", catalogoDe("funnel"));
+      if (vistaId === "funnel") pintarFunnel();
+    } catch (e) {}
+  }, 15000);
+}
+</script>

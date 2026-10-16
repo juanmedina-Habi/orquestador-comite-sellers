@@ -1,12 +1,24 @@
 <script>
 /* Tabla de nid, páginas de 50 y descarga. */
 let detalleArmada = "";
+// Columnas que cada hoja de Tableau agrega después de Cumple.
+function columnasExtra(vista) {
+  const tiempo = { t: "Tiempo hábil", v: f => tiempoHabil(f.horas) };
+  const agente = { t: "Agente", v: f => f.agente || "—" };
+  if (vista === "aprobologia") {
+    return [tiempo, agente, { t: "Comité en curso", v: f => (f.comite === "Si" ? "Sí" : "No") }, { t: "Estado", v: f => f.estado || "—" }];
+  }
+  if (vista === "sla") return [{ t: "Etapa", v: f => f.etapa }, tiempo, { t: "Reintentos", v: f => f.reintentos || "—" }];
+  if (vista === "pricing") return [{ t: "Tipo", v: f => f.tipo }, tiempo, agente];
+  if (vista === "documentos" || vista === "remo") return [tiempo, agente];
+  if (vista === "inmo") return [{ t: "Etapa", v: f => f.etapa }];
+  return [];
+}
 function pintarDetalle() {
   const v = VISTAS.find(x => x.id === vistaId);
-  const extra = v.id === "aprobologia"
-    ? "<th>Tiempo hábil</th><th>Agente</th><th>Comité en curso</th><th>Estado</th>"
-    : (v.id === "pricing" ? "<th>Tipo</th>" : (v.id === "sla" || v.id === "inmo" ? "<th>Etapa</th>" : ""));
-  const cols = v.id === "aprobologia" ? 10 : 7 + (extra ? 1 : 0);
+  const extras = columnasExtra(v.id);
+  const extra = extras.map(x => `<th>${esc(x.t)}</th>`).join("");
+  const cols = 6 + extras.length;
   if (detalleArmada !== v.id || !document.getElementById("detalle-cuerpo")) {
     detalleArmada = v.id;
     document.getElementById("detalle").innerHTML = `
@@ -74,9 +86,7 @@ function pintarDetalle() {
   const total = pag.total || 0;
   const ultima = Math.max(0, Math.ceil(total / TAM) - 1);
   cuerpo.innerHTML = muestra.length ? muestra.map(f => {
-    const extraCel = v.id === "aprobologia"
-      ? `<td>${esc(tiempoHabil(f.horas))}</td><td>${esc(f.agente || "—")}</td><td>${f.comite === "Si" ? "Sí" : "No"}</td><td>${esc(f.estado || "—")}</td>`
-      : (v.id === "pricing" ? `<td>${esc(f.tipo)}</td>` : (v.id === "sla" || v.id === "inmo" ? `<td>${esc(f.etapa)}</td>` : ""));
+    const extraCel = extras.map(x => `<td>${esc(x.v(f))}</td>`).join("");
     const cumple = f.cumple === "Si" ? `<span class="si">Sí</span>` : `<span class="no">No</span>`;
     const horas = f.horas == null ? "—" : nf1.format(f.horas);
     return `<tr><td class="num">${esc(f.nid)}</td><td>${esc(rotuloPais(f.pais))}</td><td class="num">${esc(fechaCorta(f.inicio))}</td><td class="num">${esc(fechaCorta(f.fin))}</td><td class="num">${horas}</td><td>${cumple}</td>${extraCel}</tr>`;
