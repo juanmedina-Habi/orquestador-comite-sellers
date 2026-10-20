@@ -131,7 +131,12 @@
   }
   .aviso-espera { margin: 8px 0 4px; color: var(--suave); font-size: 14px; line-height: 1.45; }
   .franja { display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; }
-  .franja h2 { margin: 0; font-size: 16px; }
+  .franja h2 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  /* La meta de cada SLA, como el [8 horas hábiles] que Tableau ponía junto al título. */
+  .meta-sla {
+    font-size: 13px; font-weight: 600; color: #7E22CE; background: #F5F3FF;
+    border: 1px solid #E9D5FF; border-radius: 999px; padding: 3px 10px; letter-spacing: 0;
+  }
   .franja p { margin: 4px 0 0; color: var(--suave); font-size: 13px; }
   .kpis { display: flex; gap: 18px; text-align: right; }
   .kpis b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }

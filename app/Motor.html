@@ -84,7 +84,7 @@ function pintarGrafica() {
   document.getElementById("pagina").innerHTML = `
     <div class="franja">
       <div>
-        <h2>Cumplimiento</h2>
+        <h2>Cumplimiento <span class="meta-sla">SLA ${META_HORAS[v.id]} horas hábiles</span></h2>
         <p>${esc(resumenFiltro() || "Todos los países")}</p>
       </div>
       <div class="kpis">
