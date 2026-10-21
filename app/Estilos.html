@@ -139,6 +139,16 @@
   }
   .franja p { margin: 4px 0 0; color: var(--suave); font-size: 13px; }
   .kpis { display: flex; gap: 18px; text-align: right; }
+  /* Leyenda a la izquierda y «Ver por» a la derecha, encima de la gráfica. */
+  .franja-tiempo { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0 4px; }
+  .franja-tiempo .leyenda { margin: 0; }
+  .tiempo { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tiempo button {
+    font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; color: #3f3f46;
+    background: #fff; border: 1px solid #D4D4D8; border-radius: 999px; padding: 6px 12px;
+  }
+  .tiempo button:hover { border-color: #7E22CE; }
+  .tiempo button.activa { color: #fff; background: #7E22CE; border-color: #7E22CE; }
   .kpis b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
   .kpis span { color: var(--suave); font-size: 12px; }
   .leyenda { display: flex; gap: 14px; margin: 12px 0 6px; font-size: 12px; color: var(--suave); }

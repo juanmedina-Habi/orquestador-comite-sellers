@@ -65,7 +65,7 @@ function pintarDetalle() {
   if (nota) {
     const periodo = busqueda[vistaId].periodo;
     nota.innerHTML = periodo
-      ? `Nid de ${esc(v.nombre)}, solo ${esc(etiquetaLarga(periodo, v.grano))}. <button type="button" class="btn-limpiar" id="det-quitar-periodo">Ver todo el recorte</button>`
+      ? `Nid de ${esc(v.nombre)}, solo ${esc(etiquetaLarga(periodo, granoDe(v.id)))}. <button type="button" class="btn-limpiar" id="det-quitar-periodo">Ver todo el recorte</button>`
       : `Nid de ${esc(v.nombre)}. La más reciente primero.`;
     const quitar = document.getElementById("det-quitar-periodo");
     if (quitar) quitar.addEventListener("click", () => {

@@ -34,10 +34,28 @@ function fechaCorta(iso) {
   const [a, m, d] = iso.split("-");
   return `${+d}/${+m}/${a}`;
 }
+// Cada pestaña de SLA abre con el grano de Tableau y se puede cambiar a día, semana,
+// mes, trimestre o año sin volver a leer datos.
+const GRANOS = [
+  { id: "día", nombre: "Día", ultimo: "del último día" },
+  { id: "semana", nombre: "Semana", ultimo: "de la última semana" },
+  { id: "mes", nombre: "Mes", ultimo: "del último mes" },
+  { id: "trimestre", nombre: "Trimestre", ultimo: "del último trimestre" },
+  { id: "anio", nombre: "Año", ultimo: "del último año" },
+];
+const granoElegido = {};
+function granoDe(vista) {
+  return granoElegido[vista] || (VISTAS.find(v => v.id === vista) || {}).grano || "mes";
+}
 function periodoDe(iso, grano) {
   if (!iso || String(iso).length < 10) return "";
   iso = String(iso).slice(0, 10);
   if (grano === "mes") return iso.slice(0, 7) + "-01";
+  if (grano === "anio") return iso.slice(0, 4) + "-01-01";
+  if (grano === "trimestre") {
+    const m = Math.floor((+iso.slice(5, 7) - 1) / 3) * 3 + 1;
+    return iso.slice(0, 4) + "-" + String(m).padStart(2, "0") + "-01";
+  }
   if (grano === "día") return iso;
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
@@ -47,6 +65,8 @@ function periodoDe(iso, grano) {
 function etiquetaLarga(iso, grano) {
   const [a, m, d] = iso.split("-");
   if (grano === "mes") return `${MES_LARGO[+m - 1]} de ${a}`;
+  if (grano === "anio") return a;
+  if (grano === "trimestre") return `trimestre ${Math.floor((+m - 1) / 3) + 1} de ${a}`;
   if (grano === "semana") return `semana del ${+d} de ${MES_LARGO[+m - 1]} de ${a}`;
   return `${+d} de ${MES_LARGO[+m - 1]} de ${a}`;
 }

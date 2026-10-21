@@ -116,7 +116,7 @@ function filaPasa(vista, i, pedido) {
 function calcularRecorte(pedido) {
   const vista = pedido.vista;
   const t = window.TABLAS[fuenteDe(vista)];
-  const grano = VISTAS.find(v => v.id === vista).grano;
+  const grano = granoDe(vista);
   const mapa = new Map();
   const matches = [];
   const meta = META_HORAS[vista];
