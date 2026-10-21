@@ -270,7 +270,16 @@ document.getElementById("pestanas").addEventListener("click", e => {
   pintarPestanas();
   pedirRecorte(false);
 });
+document.getElementById("pagina").addEventListener("click", e => {
+  const b = e.target.closest(".tiempo [data-grano]");
+  if (!b || esResto() || vistaId === "funnel") return;
+  granoElegido[vistaId] = b.dataset.grano;
+  busqueda[vistaId].periodo = "";
+  busqueda[vistaId].pagina = 0;
+  pedirRecorte(false);
+});
 document.getElementById("limpiar").addEventListener("click", () => {
+  Object.keys(granoElegido).forEach(k => delete granoElegido[k]);
   VISTAS.forEach(v => { busqueda[v.id].periodo = ""; busqueda[v.id].pagina = 0; busqueda[v.id].foco = ""; busqueda[v.id].focoTipo = ""; busqueda[v.id].mes = ""; busqueda[v.id].estado = ""; busqueda[v.id].razon = ""; });
   busqueda.funnel.grupo = "";
   busqueda.funnel.paginaGrupo = 0;

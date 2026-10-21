@@ -16,6 +16,8 @@ function resumenFiltro() {
 function etiquetaEje(iso, grano) {
   const [a, m, d] = iso.split("-");
   if (grano === "mes") return `<b>${MES[+m - 1]}</b><small>${a}</small>`;
+  if (grano === "anio") return `<b>${a}</b><small></small>`;
+  if (grano === "trimestre") return `<b>T${Math.floor((+m - 1) / 3) + 1}</b><small>${a}</small>`;
   return `<b>${+d} ${MES[+m - 1]}</b><small>${a}</small>`;
 }
 function grafica(filas, grano) {
@@ -52,7 +54,7 @@ function grafica(filas, grano) {
     const on = busqueda[vistaId] && busqueda[vistaId].periodo === f.periodo;
     return `<button type="button" class="mes-hit${on ? " elegida" : ""}" data-punto="${esc(JSON.stringify(punto))}" aria-label="${esc(punto.mes)}"></button>`;
   }).join("");
-  const columna = grano === "mes" ? 0 : grano === "día" ? 52 : 68;
+  const columna = grano === "día" ? 52 : grano === "semana" ? 68 : 0;
   const ancho = columna * n;
   return `<div class="plot-marco">
     <div class="eje" aria-hidden="true">${ticks}</div>
@@ -77,6 +79,7 @@ function grafica(filas, grano) {
 }
 function pintarGrafica() {
   const { v, filas } = seriesVista();
+  const grano = granoDe(v.id);
   document.getElementById("titulo").textContent = v.nombre;
   document.getElementById("subtitulo").textContent = v.nota;
   const ultima = filas[filas.length - 1];
@@ -88,12 +91,16 @@ function pintarGrafica() {
         <p>${esc(resumenFiltro() || "Todos los países")}</p>
       </div>
       <div class="kpis">
-        <div><b>${ultima ? nf.format(ultima.n) : "—"}</b><span>Nid del último ${v.grano}</span></div>
+        <div><b>${ultima ? nf.format(ultima.n) : "—"}</b><span>Nid ${(GRANOS.find(x => x.id === grano) || {}).ultimo || ""}</span></div>
         <div><b>${pct == null ? "—" : nf1.format(pct) + "%"}</b><span>Cumplimiento</span></div>
       </div>
     </div>
-    <div class="leyenda"><span><i></i>Nid</span><span><i class="linea"></i>% que cumple</span></div>
-    ${grafica(filas, v.grano)}`;
+    <div class="franja-tiempo">
+      <div class="leyenda"><span><i></i>Nid</span><span><i class="linea"></i>% que cumple</span></div>
+      <div class="tiempo" role="group" aria-label="Ver por">${GRANOS.map(x =>
+        `<button type="button" data-grano="${x.id}" class="${x.id === grano ? "activa" : ""}" aria-pressed="${x.id === grano}">${x.nombre}</button>`).join("")}</div>
+    </div>
+    ${grafica(filas, grano)}`;
   const sc = document.getElementById("plot-scroll");
   if (sc) requestAnimationFrame(() => {
     sc.scrollLeft = sc.scrollWidth;
